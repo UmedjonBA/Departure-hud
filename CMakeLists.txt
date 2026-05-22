@@ -42,6 +42,7 @@ qt_add_qml_module(departure-hud
         Hud.qml
     RESOURCES
         fonts/DepartureMono-Regular.otf
+        config.json
 )
 
 target_link_libraries(departure-hud PRIVATE

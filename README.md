@@ -192,8 +192,11 @@ wins; everything else falls back to compiled-in defaults.
 4. Built-in defaults (no file)
 
 You only need to set the keys you want to change. Missing keys fall back
-to defaults — there is no "you must set everything" requirement. JSON
-doesn't support comments; the `//` lines below are documentation only.
+to defaults — there is no "you must set everything" requirement.
+
+The loader accepts **JSONC** (JSON with `// line` and `/* block */`
+comments). Comments are stripped before parsing, so feel free to keep
+documentation right next to each key in your own file.
 
 ### Full reference
 
@@ -413,13 +416,15 @@ asleep does polling pause.
 
 ### Bootstrapping the config
 
-The repo ships a sample `config.json`. To install it into the standard
-location:
+The binary ships an annotated `config.json` (a JSONC template — every
+option present, with inline comments explaining each). To drop it into
+the standard location:
 ```sh
 departure-hud --install-config
 # → ~/.config/departure-hud/config.json
 ```
-(It refuses to overwrite an existing file.)
+(It refuses to overwrite an existing file. Delete or move yours if you
+want a fresh annotated copy.)
 
 ---
 

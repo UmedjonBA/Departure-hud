@@ -1,28 +1,130 @@
+// Departure HUD — config file
+//
+// This is JSON with // line and /* block */ comments. Comments are
+// stripped before parsing, so feel free to keep them as inline docs.
+// Every key is optional — anything you remove falls back to the
+// compiled-in defaults.
+//
+// Lookup order at startup:
+//   1) --config / -c PATH on the command line
+//   2) $DEPARTURE_HUD_CONFIG
+//   3) $XDG_CONFIG_HOME/departure-hud/config.json
+//      (i.e. ~/.config/departure-hud/config.json)
+//   4) compiled-in defaults
+//
+// Re-run `departure-hud --install-config` later to refresh this
+// template if you ever want a fresh annotated copy.
+
 {
-  "scale": 1.0,
-  "autoScale": false,
-  "autoScaleFit": 0.7,
-  "useBackground": true,
-  "accentColor": "#f08a28",
-  "hotColor": "#ff5a3c",
-  "bgColor": "#0d0d0d",
+  // ── Appearance ──────────────────────────────────────────────────
 
-  "updateMs": 1000,
-  "disksToShow": "/,/home",
-  "netInterface": "",
-  "netMode": "sum",
+  "scale":         1.0,            // multiplier for the 1180×600 design surface.
+                                   //   0.5  = half-size,  2.0 = double,  4.0 = max.
+                                   //   Ignored when "autoScale" is true.
 
-  "cpuMaxTemp": 90,
-  "gpuMaxTemp": 85,
-  "ssdMaxTemp": 65,
+  "autoScale":     false,          // when true, "scale" is recomputed per monitor:
+                                   //   scale = clamp(min(W*fit/1180, H*fit/600), 0.5, 4.0)
+                                   // Works on any aspect ratio (16:9, 21:9, 32:9, portrait, …)
+                                   // and is computed independently for each output in
+                                   // multi-monitor mode below.
 
-  "showScope": true,
-  "starCount": 30,
+  "autoScaleFit":  0.7,            // 0.1–1.0  fraction of the screen the HUD may occupy
+                                   //          when autoScale=true. 0.5 = half, 0.9 = nearly full.
+
+  "useBackground": false,          // false → transparent backdrop (wallpaper shows through)
+                                   // true  → paint "bgColor" behind the HUD.
+
+  "accentColor":   "#f08a28",      // primary color — text, bars, frames.
+  "hotColor":      "#ff5a3c",      // alert color — over-temp, low battery, etc.
+  "bgColor":       "#0d0d0d",      // background fill (only visible if useBackground=true).
+
+
+  // ── Data sources ────────────────────────────────────────────────
+
+  "updateMs":      1000,           // /proc & /sys poll period in ms.
+                                   //   200  = silky-smooth, hits /proc 5×/s
+                                   //   2500 = relaxed, easy on the battery
+
+  "disksToShow":   "/,/home",      // comma-separated mount points for the DISK panel.
+                                   // e.g. "/,/home,/mnt/data". Unknown mounts are skipped.
+
+  "netInterface":  "",             // pin a NIC by name ("wlp3s0", "eth0", "wg0"…).
+                                   // Empty → use "netMode" below.
+  // "netInterface": "wlp3s0",     //   example: always show the WiFi adapter
+
+  "netMode":       "sum",          // when netInterface is empty:
+                                   //   "sum"  → add traffic across all non-loopback NICs
+                                   //   "auto" → pick the busiest interface right now
+
+
+  // ── Alert thresholds (°C, used by the THERM panel) ──────────────
+  // Values above ~95% of these glow in hotColor.
+
+  "cpuMaxTemp":    90,
+  "gpuMaxTemp":    85,
+  "ssdMaxTemp":    65,
+
+
+  // ── Center scope (wireframe sphere) ─────────────────────────────
+
+  "showScope":     true,           // false → hide the wireframe-sphere panel entirely.
+  "starCount":     30,             // warp-speed star count. 0 disables the stars.
+
+
+  // ── Optional GPU info script ────────────────────────────────────
+  // Point at an executable that prints one line of JSON like:
+  //   {"text":"50°C","tooltip":"Temperature: 50°C\nUtilization: 39%\n
+  //    Power Usage: 6.24/[N/A] W\nClock Speed: 375/2100 MHz"}
+  //
+  // Ready-made scripts ship in the repo under scripts/:
+  //   scripts/gpuinfo-nvidia.sh    — NVIDIA via nvidia-smi
+  //   scripts/gpuinfo-amd.sh       — AMD via amdgpu_top + jq
+  //   scripts/gpuinfo-intel.sh     — Intel via intel_gpu_top + jq
+  //   scripts/gpuinfo-sensors.sh   — any GPU exposing temp via lm_sensors
+  //
+  // Copy one to ~/.local/bin/gpuinfo.sh, chmod +x, and point this at it.
+  // ~ at the start expands to $HOME. Missing / non-executable → GPU panel hides.
+
   "gpuScriptPath": "~/.local/bin/gpuinfo.sh",
 
-  "screen": "",
-  "screens": [],
-  "layer": "bottom",
-  "clickThrough": true,
-  "keyboardFocus": "none"
+
+  // ── Monitor placement (only honoured with layer-shell builds) ───
+  //
+  // Single-monitor mode (legacy, simplest):
+  //   ""       → primary screen (default)
+  //   "DP-1"   → a specific output
+  // Get output names from `wlr-randr` or `hyprctl monitors`.
+
+  "screen":        "",
+
+  // Multi-monitor mode (takes precedence when set to non-empty):
+  //   []                    → fall back to the "screen" above
+  //   "*"                   → spawn a HUD on every connected output
+  //   ["DP-1","HDMI-A-1"]   → spawn on these specific outputs
+  // Each window auto-scales independently (when autoScale=true) so mixed
+  // 4K + 1080p + ultrawide setups all render correctly at once.
+
+  "screens":       [],
+  // "screens":     "*",                       // mirror onto every monitor
+  // "screens":     ["DP-1", "HDMI-A-1"],      // pin onto these two
+
+
+  // ── Wayland surface placement (layer-shell only) ────────────────
+
+  "layer":         "bottom",       // "background" | "bottom" | "top" | "overlay"
+                                   //   background → under the wallpaper handler
+                                   //   bottom     → above wallpaper, below windows
+                                   //                (default — desktop-widget feel)
+                                   //   top        → above normal windows, below overlays
+                                   //   overlay    → above everything (notifications, lock)
+
+  "clickThrough":  true,           // true  → empty area around the HUD passes clicks
+                                   //         to whatever sits under it
+                                   // false → whole layer surface intercepts input
+                                   //         (combine with keyboardFocus = ondemand)
+
+  "keyboardFocus": "none"          // layer-shell keyboard interactivity:
+                                   //   "none"      → never receives keys (default)
+                                   //   "ondemand"  → focuses when clicked
+                                   //   "exclusive" → grabs focus exclusively
 }
