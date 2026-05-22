@@ -6,3 +6,18 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# Build artifacts
+build/
+build-*/
+*.o
+*.obj
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+CMakeUserPresets.json
+compile_commands.json
+.cache/
