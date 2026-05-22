@@ -21,6 +21,7 @@
   "gpuScriptPath": "~/.local/bin/gpuinfo.sh",
 
   "screen": "",
+  "screens": [],
   "layer": "bottom",
   "clickThrough": true,
   "keyboardFocus": "none"

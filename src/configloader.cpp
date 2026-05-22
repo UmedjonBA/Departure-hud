@@ -32,6 +32,7 @@ QVariantMap ConfigLoader::defaults() {
         {"gpuScriptPath",  "~/.local/bin/gpuinfo.sh"},
 
         {"screen",         ""},
+        {"screens",        QVariantList{}},
         {"layer",          "bottom"},
         {"clickThrough",   true},
         {"keyboardFocus",  "none"},

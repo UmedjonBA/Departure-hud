@@ -1,12 +1,18 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
+#include <QList>
+#include <QMetaType>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QScreen>
 #include <QString>
+#include <QStringList>
+#include <QUrl>
+#include <QVariantList>
 #include <QtGlobal>
 
 #include "configloader.h"
@@ -28,24 +34,54 @@ static QString resolveConfigPath(const QString& cli) {
     return xdg + "/departure-hud/config.json";
 }
 
-static QScreen* pickScreen(const QString& name) {
-    if (name.trimmed().isEmpty()) return QGuiApplication::primaryScreen();
-    for (QScreen* s : QGuiApplication::screens()) {
-        if (s->name() == name) return s;
+// Resolve the list of QScreens the HUD should run on.
+// Priority:
+//   1. "screens" key — either the literal string "*" (all screens) or
+//      a JSON array of output names (["DP-1", "HDMI-A-1"]). Unknown
+//      names are skipped silently.
+//   2. Legacy singular "screen" — single output name, "" = primary.
+//   3. Fallback — primary screen.
+static QList<QScreen*> resolveTargetScreens(const QVariantMap& settings) {
+    const QList<QScreen*> all = QGuiApplication::screens();
+    QList<QScreen*> out;
+
+    auto byName = [&](const QString& name) -> QScreen* {
+        for (QScreen* s : all) if (s->name() == name) return s;
+        return nullptr;
+    };
+
+    const QVariant v = settings.value("screens");
+
+    if (v.metaType().id() == QMetaType::QString) {
+        if (v.toString().trimmed() == "*") return all;
     }
-    return QGuiApplication::primaryScreen();
+
+    if (v.canConvert<QVariantList>()) {
+        const QVariantList items = v.toList();
+        bool sawWildcard = false;
+        for (const QVariant& it : items) {
+            const QString name = it.toString().trimmed();
+            if (name == "*") { sawWildcard = true; break; }
+            if (name.isEmpty()) continue;
+            if (QScreen* s = byName(name)) {
+                if (!out.contains(s)) out.append(s);
+            }
+        }
+        if (sawWildcard) return all;
+        if (!out.isEmpty()) return out;
+    }
+
+    const QString single = settings.value("screen").toString().trimmed();
+    if (!single.isEmpty()) {
+        if (QScreen* s = byName(single)) return { s };
+    }
+
+    if (QScreen* p = QGuiApplication::primaryScreen()) return { p };
+    return {};
 }
 
-// Auto-scale to a configurable fraction of the screen. The HUD's design
-// surface is fixed at 1180×600 (≈ 1.97:1, a wide horizontal panel) and
-// is always scaled uniformly to preserve its proportions. The factor is
-// picked so the HUD takes up at most `fit` of the screen's width AND at
-// most `fit` of the screen's height — whichever is more constraining
-// wins, so the HUD never overflows on any aspect ratio (21:9, 32:9,
-// portrait, 4:3, square, …).
-//
-// Defaults: fit = 0.70 → HUD targets ~70% of the smaller dimension.
-// Clamp range [0.5, 4.0] keeps it usable on tiny / huge displays.
+// Auto-scale to a configurable fraction of the screen. See README's
+// "Sizing on different monitors" for the formula and a worked table.
 static qreal computeAutoScale(QScreen* s, qreal fit) {
     constexpr qreal baseW = 1180.0;
     constexpr qreal baseH = 600.0;
@@ -121,65 +157,114 @@ int main(int argc, char* argv[]) {
 
     ConfigLoader cfg;
     cfg.load(configPath);
+    const QVariantMap settings = cfg.settings();
 
-    QVariantMap settings = cfg.settings();
-    QScreen* screen = pickScreen(settings.value("screen").toString());
-
-    if (settings.value("autoScale", false).toBool()) {
-        const qreal fit = settings.value("autoScaleFit", 0.7).toDouble();
-        const qreal s   = computeAutoScale(screen, fit);
-        settings["scale"] = s;
-        fprintf(stderr,
-                "departure-hud: autoScale → %.2f (fit=%.2f, screen %dx%d)\n",
-                s, fit,
-                screen ? screen->geometry().width()  : 0,
-                screen ? screen->geometry().height() : 0);
+    const QList<QScreen*> targets = resolveTargetScreens(settings);
+    if (targets.isEmpty()) {
+        qWarning("departure-hud: no target screens resolved — aborting");
+        return 1;
     }
 
     SysData sys(settings);
-    MaskController mask;
-    mask.setClickThrough(settings.value("clickThrough", true).toBool());
-
-    VisibilityWatcher visibility;
-    QObject::connect(&visibility, &VisibilityWatcher::visibleChanged,
-                     &sys, [&]{ sys.setActive(visibility.visible()); });
 
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("appSettings", settings);
     engine.rootContext()->setContextProperty("sysData", &sys);
-    engine.rootContext()->setContextProperty("visibility", &visibility);
 #ifdef HAVE_LAYER_SHELL
     engine.rootContext()->setContextProperty("layerShellEnabled", true);
 #else
     engine.rootContext()->setContextProperty("layerShellEnabled", false);
 #endif
 
-    engine.loadFromModule("DepartureHud", "Main");
-
-    const auto roots = engine.rootObjects();
-    if (roots.isEmpty()) return 1;
-
-    QQuickWindow* window = qobject_cast<QQuickWindow*>(roots.first());
-    if (!window) {
-        qWarning("departure-hud: root QML object is not a Window");
+    QQmlComponent windowComponent(&engine,
+        QUrl(QStringLiteral("qrc:/qt/qml/DepartureHud/Main.qml")));
+    if (windowComponent.isError()) {
+        qWarning() << "departure-hud: Main.qml load failed:"
+                   << windowComponent.errorString();
         return 1;
     }
 
-    if (screen) {
+    QList<VisibilityWatcher*> watchers;
+    QList<MaskController*>    masks;
+    QList<QQuickWindow*>      windows;
+
+    auto syncAggregateVisibility = [&]() {
+        bool any = false;
+        for (VisibilityWatcher* w : watchers) {
+            if (w && w->visible()) { any = true; break; }
+        }
+        sys.setActive(any || watchers.isEmpty());
+    };
+
+    for (QScreen* screen : targets) {
+        QVariantMap winSettings = settings;
+        if (winSettings.value("autoScale", false).toBool()) {
+            const qreal fit = winSettings.value("autoScaleFit", 0.7).toDouble();
+            winSettings["scale"] = computeAutoScale(screen, fit);
+        }
+
+        auto* watcher = new VisibilityWatcher(&app);
+        auto* mask    = new MaskController(&app);
+        mask->setClickThrough(winSettings.value("clickThrough", true).toBool());
+
+        auto* ctx = new QQmlContext(engine.rootContext(), &engine);
+        ctx->setContextProperty("appSettings", winSettings);
+        ctx->setContextProperty("visibility", watcher);
+
+        QObject* obj = windowComponent.create(ctx);
+        if (!obj) {
+            qWarning() << "departure-hud: failed to create window for"
+                       << screen->name();
+            delete ctx;
+            delete watcher;
+            delete mask;
+            continue;
+        }
+
+        auto* window = qobject_cast<QQuickWindow*>(obj);
+        if (!window) {
+            qWarning("departure-hud: root QML object is not a Window");
+            obj->deleteLater();
+            delete ctx;
+            delete watcher;
+            delete mask;
+            continue;
+        }
+        // Tie the per-window context lifetime to the window. The window
+        // itself is owned by the engine via QQmlComponent::create().
+        ctx->setParent(window);
+
         window->setScreen(screen);
-        const QRect g = screen->geometry();
-        window->setGeometry(g);
-    }
+        window->setGeometry(screen->geometry());
 
 #ifdef HAVE_LAYER_SHELL
-    configureLayerShell(window, settings);
+        configureLayerShell(window, winSettings);
 #endif
 
-    QQuickItem* hudItem = window->contentItem()->findChild<QQuickItem*>("hud");
-    if (hudItem) mask.attach(window, hudItem);
-    visibility.attach(window);
+        QQuickItem* hudItem = window->contentItem()->findChild<QQuickItem*>("hud");
+        if (hudItem) mask->attach(window, hudItem);
+        watcher->attach(window);
 
-    window->setVisible(true);
+        QObject::connect(watcher, &VisibilityWatcher::visibleChanged,
+                         &sys, syncAggregateVisibility);
+
+        watchers << watcher;
+        masks    << mask;
+        windows  << window;
+
+        fprintf(stderr,
+                "departure-hud: window on %s (%dx%d, scale=%.2f)\n",
+                qPrintable(screen->name()),
+                screen->geometry().width(),
+                screen->geometry().height(),
+                winSettings.value("scale").toDouble());
+
+        window->setVisible(true);
+    }
+
+    if (windows.isEmpty()) {
+        qWarning("departure-hud: no windows created — aborting");
+        return 1;
+    }
 
     return app.exec();
 }

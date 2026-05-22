@@ -255,9 +255,17 @@ doesn't support comments; the `//` lines below are documentation only.
   "gpuScriptPath":  "~/.local/bin/gpuinfo.sh",
 
   // ─── Wayland surface placement (only honoured with layer-shell) ─
-  "screen":         "",          // (string) "" = primary screen.
+  "screen":         "",          // (string) single-monitor mode.
+                                 //          "" = primary screen.
                                  //          Otherwise an output name: "DP-1", "eDP-1", "HDMI-A-1"…
                                  //          Get yours from `wlr-randr` or `hyprctl monitors`.
+                                 //          Ignored when "screens" is set below.
+
+  "screens":        [],          // (array | string) multi-monitor mode.
+                                 //          []                    → use the singular "screen" above
+                                 //          "*"                   → spawn a HUD on every connected output
+                                 //          ["DP-1", "HDMI-A-1"]  → spawn on these specific outputs
+                                 //          Unknown names are silently skipped.
 
   "layer":          "bottom",    // (string) layer-shell namespace:
                                  //   "background" → below the wallpaper handler
@@ -327,6 +335,36 @@ false` and set `"scale"` directly.
 - **With layer-shell**: every key in the *Wayland surface placement*
   block is honoured.
 
+### Multiple monitors
+
+`departure-hud` can spawn one HUD per output simultaneously. Each
+window is bound to its screen (layer-shell `setScreen` / Qt
+`setScreen`) and gets its own auto-scale, mask and visibility
+watcher. A single `SysData` is shared, so polling cost stays the same
+no matter how many screens you light up.
+
+```json
+// All connected outputs
+{ "screens": "*" }
+
+// Specific outputs (run `wlr-randr` / `hyprctl monitors` for names)
+{ "screens": ["DP-1", "HDMI-A-1"] }
+
+// Only the singular "screen" key (legacy / single-monitor)
+{ "screen": "DP-1", "screens": [] }
+```
+
+Resolution order: `screens "*"` → `screens [list]` → `screen "name"` →
+primary screen.
+
+Per-screen scale just works: with `"autoScale": true`, each window
+picks its own scale from its own monitor's geometry, so a 4K + 1080p
+setup shows two correctly-sized HUDs at once.
+
+The aggregate visibility watcher means: if *any* window is exposed,
+`SysData` keeps polling; only when **all** windows are occluded /
+asleep does polling pause.
+
 ### Example configs
 
 **Fully transparent, scaled up 1.4×, all alerts on a cold AMD box:**
@@ -351,6 +389,15 @@ false` and set `"scale"` directly.
   "layer": "overlay",
   "clickThrough": false,
   "keyboardFocus": "ondemand"
+}
+```
+
+**Mirror the HUD on every monitor, auto-scaled to each:**
+```json
+{
+  "screens": "*",
+  "autoScale": true,
+  "autoScaleFit": 0.7
 }
 ```
 
@@ -441,11 +488,14 @@ invalid JSON — the GPU panel just hides. No errors.
 
 The HUD pauses itself when nobody can see it.
 
-- A `VisibilityWatcher` listens for `QEvent::Expose` on the window and
-  reads `QWindow::isExposed()`. When the layer surface is fully covered
+- A `VisibilityWatcher` per window listens for `QEvent::Expose` and
+  reads `QWindow::isExposed()`. When a layer surface is fully covered
   by an opaque window above it, or the output goes to sleep, the
   compositor stops asking for frames and `isExposed()` flips to false.
-- While not exposed, `SysData` stops both polling timers (no `/proc`,
+- In multi-monitor mode the watchers are aggregated: `SysData` keeps
+  polling as long as **any** window is still exposed, and pauses only
+  when **every** HUD instance is occluded.
+- While paused, `SysData` stops both polling timers (no `/proc`,
   no `/sys`, no `df`, no `wpctl`/`pactl` forks, no GPU script forks).
 - The QML side propagates the same flag (`active`) into the clock,
   Scope canvas and pitch-marker timers, so the warp-speed Canvas
