@@ -48,6 +48,20 @@ SysData::SysData(const QVariantMap& settings, QObject* parent)
 
 SysData::~SysData() = default;
 
+void SysData::setActive(bool active) {
+    if (active == m_active) return;
+    m_active = active;
+    if (m_active) {
+        m_pollTimer.start();
+        m_slowTimer.start();
+        QTimer::singleShot(0, this, &SysData::poll);
+        QTimer::singleShot(0, this, [this]{ pollDisks(); });
+    } else {
+        m_pollTimer.stop();
+        m_slowTimer.stop();
+    }
+}
+
 QString SysData::readAll(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};

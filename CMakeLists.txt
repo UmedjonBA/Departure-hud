@@ -30,6 +30,8 @@ qt_add_executable(departure-hud
     src/configloader.h
     src/maskcontroller.cpp
     src/maskcontroller.h
+    src/visibilitywatcher.cpp
+    src/visibilitywatcher.h
 )
 
 qt_add_qml_module(departure-hud

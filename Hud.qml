@@ -10,6 +10,7 @@ Item {
 
   property var settings: ({})
   property var sys: null
+  property bool active: true
 
   readonly property real userScale: settings.scale || 1.0
   readonly property bool useBackground: settings.useBackground !== undefined ? settings.useBackground : true
@@ -86,7 +87,7 @@ Item {
       Timer {
         interval: 80
         repeat: true
-        running: true
+        running: root.active
         triggeredOnStart: true
         onTriggered: {
           var d = new Date()
@@ -285,6 +286,7 @@ Item {
           family: root.fontFamily
           starCount: root.starCount
           visible: root.showScope
+          active: root.active
           netActive: {
             var b = (root.sys?.netDownBps ?? 0) + (root.sys?.netUpBps ?? 0)
             if (b <= 0) return 0
@@ -303,6 +305,7 @@ Item {
           fg: root.cFg
           fgDim: root.cFgDim
           family: root.fontFamily
+          active: root.active
         }
       }
 
@@ -821,6 +824,7 @@ Item {
     property color fg: "#fff"
     property color fgDim: "#555"
     property string family: "monospace"
+    property bool active: true
     readonly property var scaleValues: [30, 25, 20, 15, 10, 5, 0, -5, -10, -15, -20, -25, -30]
     property int _nearestIdx: 0
 
@@ -875,7 +879,7 @@ Item {
     Timer {
       interval: 30
       repeat: true
-      running: true
+      running: ps.active
       onTriggered: {
         var t = Date.now() / 1000
         var v =
@@ -912,6 +916,7 @@ Item {
     property int netActive: 0
     property int cpuTotal: 0
     property int gpuTotal: 0
+    property bool active: true
 
     readonly property int vbW: 480
     readonly property int vbH: 460
@@ -1026,7 +1031,7 @@ Item {
     Timer {
       interval: 33
       repeat: true
-      running: sc.visible
+      running: sc.visible && sc.active
       onTriggered: scopeCanvas.requestPaint()
     }
 

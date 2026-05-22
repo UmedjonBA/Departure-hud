@@ -11,6 +11,7 @@
 QVariantMap ConfigLoader::defaults() {
     return {
         {"scale",          1.0},
+        {"autoScale",      false},
         {"useBackground",  true},
         {"accentColor",    "#f08a28"},
         {"hotColor",       "#ff5a3c"},

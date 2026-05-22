@@ -12,6 +12,7 @@
 #include "configloader.h"
 #include "maskcontroller.h"
 #include "sysdata.h"
+#include "visibilitywatcher.h"
 
 #ifdef HAVE_LAYER_SHELL
 #include <LayerShellQt/Shell>
@@ -33,6 +34,18 @@ static QScreen* pickScreen(const QString& name) {
         if (s->name() == name) return s;
     }
     return QGuiApplication::primaryScreen();
+}
+
+// Auto-scale relative to a 1920×1080 baseline. The HUD has a fixed 1180×600
+// design surface; we just pick a scale factor so it occupies a similar
+// fraction of any monitor. Clamped so it stays usable on tiny / huge screens.
+static qreal computeAutoScale(QScreen* s) {
+    if (!s) return 1.0;
+    const QRect g = s->geometry();
+    if (g.width() <= 0 || g.height() <= 0) return 1.0;
+    const qreal sx = g.width()  / 1920.0;
+    const qreal sy = g.height() / 1080.0;
+    return qBound<qreal>(0.5, qMin(sx, sy), 3.0);
 }
 
 #ifdef HAVE_LAYER_SHELL
@@ -99,13 +112,31 @@ int main(int argc, char* argv[]) {
     ConfigLoader cfg;
     cfg.load(configPath);
 
-    SysData sys(cfg.settings());
+    QVariantMap settings = cfg.settings();
+    QScreen* screen = pickScreen(settings.value("screen").toString());
+
+    if (settings.value("autoScale", false).toBool()) {
+        const qreal s = computeAutoScale(screen);
+        settings["scale"] = s;
+        fprintf(stderr,
+                "departure-hud: autoScale → %.2f (screen %dx%d)\n",
+                s,
+                screen ? screen->geometry().width()  : 0,
+                screen ? screen->geometry().height() : 0);
+    }
+
+    SysData sys(settings);
     MaskController mask;
-    mask.setClickThrough(cfg.settings().value("clickThrough", true).toBool());
+    mask.setClickThrough(settings.value("clickThrough", true).toBool());
+
+    VisibilityWatcher visibility;
+    QObject::connect(&visibility, &VisibilityWatcher::visibleChanged,
+                     &sys, [&]{ sys.setActive(visibility.visible()); });
 
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("appSettings", cfg.settings());
+    engine.rootContext()->setContextProperty("appSettings", settings);
     engine.rootContext()->setContextProperty("sysData", &sys);
+    engine.rootContext()->setContextProperty("visibility", &visibility);
 #ifdef HAVE_LAYER_SHELL
     engine.rootContext()->setContextProperty("layerShellEnabled", true);
 #else
@@ -123,7 +154,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    QScreen* screen = pickScreen(cfg.settings().value("screen").toString());
     if (screen) {
         window->setScreen(screen);
         const QRect g = screen->geometry();
@@ -131,11 +161,12 @@ int main(int argc, char* argv[]) {
     }
 
 #ifdef HAVE_LAYER_SHELL
-    configureLayerShell(window, cfg.settings());
+    configureLayerShell(window, settings);
 #endif
 
     QQuickItem* hudItem = window->contentItem()->findChild<QQuickItem*>("hud");
     if (hudItem) mask.attach(window, hudItem);
+    visibility.attach(window);
 
     window->setVisible(true);
 

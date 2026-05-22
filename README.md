@@ -23,11 +23,12 @@ transparent window.
 5. [Run](#run)
 6. [Configuration](#configuration)
 7. [GPU info script](#gpu-info-script)
-8. [Wayland behaviour](#wayland-behaviour)
-9. [Autostart](#autostart)
-10. [Troubleshooting](#troubleshooting)
-11. [Files](#files)
-12. [License](#license)
+8. [Resource use](#resource-use)
+9. [Wayland behaviour](#wayland-behaviour)
+10. [Autostart](#autostart)
+11. [Troubleshooting](#troubleshooting)
+12. [Files](#files)
+13. [License](#license)
 
 ---
 
@@ -201,6 +202,13 @@ doesn't support comments; the `//` lines below are documentation only.
   // ─── Appearance ─────────────────────────────────────────────────
   "scale":          1.0,         // (float) multiplier for the base 1180×600 layout.
                                  //         0.5 = half-size, 2.0 = double, etc.
+                                 //         Ignored if autoScale is true.
+
+  "autoScale":      false,       // (bool) when true, pick `scale` from the screen size,
+                                 //        normalised to a 1920×1080 baseline:
+                                 //          scale = clamp(min(W/1920, H/1080), 0.5, 3.0)
+                                 //        4K → ~2.0, 1440p → ~1.33, 720p → ~0.67.
+                                 //        Falls back to 1.0 if the screen is unknown.
 
   "useBackground":  false,       // (bool) false → transparent backdrop (wallpaper shows through).
                                  //        true  → paint bgColor behind the HUD.
@@ -388,6 +396,36 @@ invalid JSON — the GPU panel just hides. No errors.
 
 ---
 
+## Resource use
+
+The HUD pauses itself when nobody can see it.
+
+- A `VisibilityWatcher` listens for `QEvent::Expose` on the window and
+  reads `QWindow::isExposed()`. When the layer surface is fully covered
+  by an opaque window above it, or the output goes to sleep, the
+  compositor stops asking for frames and `isExposed()` flips to false.
+- While not exposed, `SysData` stops both polling timers (no `/proc`,
+  no `/sys`, no `df`, no `wpctl`/`pactl` forks, no GPU script forks).
+- The QML side propagates the same flag (`active`) into the clock,
+  Scope canvas and pitch-marker timers, so the warp-speed Canvas
+  animation stops entirely.
+- On resume the HUD does one immediate poll so the user sees fresh
+  numbers as soon as the surface is uncovered.
+
+So an idle, covered HUD costs ~0% CPU. A fully visible HUD on this
+machine sits around ~25-30% of one core while the Canvas animation
+runs (driven mostly by `Canvas.requestPaint` at 30 fps); set
+`"showScope": false` or `"starCount": 0` if you want it cheaper.
+
+To verify on your machine:
+```sh
+# while the HUD is visible:
+top -p "$(pgrep departure-hud)"
+# now fullscreen another window over the HUD and watch %CPU drop
+```
+
+---
+
 ## Wayland behaviour
 
 | Build option           | Behaviour |
@@ -500,6 +538,7 @@ this machine. Either install the runtime package or rebuild with
 | `src/sysdata.{h,cpp}`        | system data collector (`/proc`, `/sys`, `statvfs`…)    |
 | `src/configloader.{h,cpp}`   | JSON config loader + built-in defaults                 |
 | `src/maskcontroller.{h,cpp}` | input-region mask for click-through behaviour          |
+| `src/visibilitywatcher.{h,cpp}` | pauses everything when the HUD is occluded          |
 | `Main.qml`                   | window root, hosts the HUD                             |
 | `Hud.qml`                    | pure presentation — binds against `sys` and `settings` |
 | `config.json`                | sample config (also the source for `--install-config`) |

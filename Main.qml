@@ -21,11 +21,18 @@ Window {
     property var settings: appSettings
     property var sys: sysData
 
+    // True when the compositor is asking for frames from this surface.
+    // Goes false when the HUD is fully occluded by another window, the
+    // session is locked, or the output is asleep — at which point all
+    // animation timers in the HUD pause and SysData stops polling.
+    readonly property bool exposed: visibility ? visibility.visible : true
+
     Hud {
         id: hud
         objectName: "hud"
         anchors.centerIn: parent
         sys: root.sys
         settings: root.settings
+        active: root.exposed
     }
 }

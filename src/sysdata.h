@@ -128,6 +128,7 @@ public:
 
 public slots:
     void poll();
+    void setActive(bool active);
 
 signals:
     void cpuChanged();
@@ -224,6 +225,7 @@ private:
 
     QTimer m_pollTimer;
     QTimer m_slowTimer;
+    bool   m_active = true;
 
     QProcess* m_volProc = nullptr;
     QProcess* m_gpuProc = nullptr;
