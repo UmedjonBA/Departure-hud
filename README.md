@@ -22,11 +22,12 @@ transparent window.
 4. [Install](#install)
 5. [Run](#run)
 6. [Configuration](#configuration)
-7. [Wayland behaviour](#wayland-behaviour)
-8. [Autostart](#autostart)
-9. [Troubleshooting](#troubleshooting)
-10. [Files](#files)
-11. [License](#license)
+7. [GPU info script](#gpu-info-script)
+8. [Wayland behaviour](#wayland-behaviour)
+9. [Autostart](#autostart)
+10. [Troubleshooting](#troubleshooting)
+11. [Files](#files)
+12. [License](#license)
 
 ---
 
@@ -90,15 +91,31 @@ On the **target** machine you need only:
 These are **optional** and detected at runtime — the HUD just hides the
 panel if they're missing:
 
-- `wpctl` (PipeWire) **or** `pactl` (PulseAudio) — for the AUDIO panel
-- An executable at `gpuScriptPath` that prints JSON (see below) — for the
-  GPU panel
+- **AUDIO panel** — needs `wpctl` (from `wireplumber`) **or** `pactl`
+  (from `pulseaudio-utils` / `libpulse`). Most modern desktops already
+  have one.
+- **GPU panel** — needs an executable at `gpuScriptPath` printing the
+  documented JSON (see [GPU info script](#gpu-info-script)).
+  Typically driven by `nvidia-smi`, `amdgpu_top`, `radeontop`, or
+  `intel_gpu_top` — install whichever fits your hardware. The HUD
+  itself stays vendor-agnostic.
+- **BRIGHTNESS panel** — backlight devices under `/sys/class/backlight/*`.
+  Provided by the kernel; if your laptop's backlight isn't exposed
+  there, the panel hides.
+- **BATTERY panel** — `/sys/class/power_supply/BAT*` (also kernel-
+  provided). On a desktop without a battery, the panel hides.
+- **THERM panel** — `/sys/class/hwmon/*`. On most distros nothing extra
+  is needed; on a few you may want to load drivers (`lm_sensors`,
+  `nct6775`, `coretemp`…) for richer readings.
 
-Everything else (`/proc`, `/sys`, `statvfs(3)`) is in the kernel/libc — no
-extra packages.
+Optional but handy for setting `"screen"` in the config: `wlr-randr`
+(wlroots) or `hyprctl monitors` (Hyprland) to list output names.
 
-The QML files and the Departure Mono font are embedded into the binary via
-Qt's resource system, so you don't have to ship them separately.
+Everything else (`/proc`, `/proc/net/dev`, `statvfs(3)`) is in the
+kernel/libc — no extra packages.
+
+The QML files and the Departure Mono font are embedded into the binary
+via Qt's resource system, so you don't have to ship them separately.
 
 ---
 
@@ -307,6 +324,81 @@ departure-hud --install-config
 # → ~/.config/departure-hud/config.json
 ```
 (It refuses to overwrite an existing file.)
+
+---
+
+## GPU info script
+
+The GPU panel is opt-in: the HUD reads it from an external script that
+the user provides. This keeps the binary vendor-agnostic — NVIDIA, AMD,
+Intel and hybrid setups can all be fed in the same way.
+
+**Contract:** the script prints **one line of JSON** to stdout and
+exits. The shape:
+
+```json
+{
+  "text":    "50°C",
+  "tooltip": "Temperature: 50°C\nUtilization: 39%\nPower Usage: 6.24/[N/A] W\nClock Speed: 375/2100 MHz"
+}
+```
+
+The HUD parses `tooltip` with regexes — it looks for `Temperature:`,
+`Utilization:`, `Power Usage:` and `Clock Speed: X / Y MHz`. Missing
+fields just hide their row; you don't need to provide all of them. If
+`tooltip` lacks a temperature, `text` is parsed as a fallback (any
+number followed by `°C`).
+
+Point `gpuScriptPath` at the executable. `~` expands to `$HOME`.
+
+### Example: NVIDIA (`nvidia-smi`)
+
+```sh
+#!/usr/bin/env bash
+# ~/.local/bin/gpuinfo.sh — NVIDIA via nvidia-smi
+read TEMP UTIL POW POW_MAX CLK CLK_MAX < <(
+  nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.max_limit,clocks.gr,clocks.max.gr \
+             --format=csv,noheader,nounits | tr ',' ' '
+)
+printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\nUtilization: %s%%\\nPower Usage: %s/%s W\\nClock Speed: %s/%s MHz"}\n' \
+       "$TEMP" "$TEMP" "$UTIL" "$POW" "$POW_MAX" "$CLK" "$CLK_MAX"
+```
+```sh
+chmod +x ~/.local/bin/gpuinfo.sh
+```
+
+### Example: AMD (`amdgpu_top`)
+
+```sh
+#!/usr/bin/env bash
+# ~/.local/bin/gpuinfo.sh — AMD via amdgpu_top (pacman -S amdgpu_top)
+J=$(amdgpu_top -d -J -n 1 -s 50 2>/dev/null | jq '.devices[0]')
+TEMP=$(jq -r '.Sensors."Edge Temperature".value // 0'   <<<"$J")
+UTIL=$(jq -r '.gpu_activity.GFX.value // 0'             <<<"$J")
+POW=$( jq -r '.Sensors."Average Power".value // 0'      <<<"$J")
+CLK=$( jq -r '.gpu_clock.value // 0'                    <<<"$J")
+CLK_MAX=$(jq -r '.gpu_clock.max // 0'                   <<<"$J")
+printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\nUtilization: %s%%\\nPower Usage: %s/[N/A] W\\nClock Speed: %s/%s MHz"}\n' \
+       "$TEMP" "$TEMP" "$UTIL" "$POW" "$CLK" "$CLK_MAX"
+```
+
+### Example: Intel (`intel_gpu_top`)
+
+`intel_gpu_top -J -s 1000` emits a stream of JSON snapshots. Capture
+one frame and reshape it; integrated GPUs don't usually expose
+power/clock, so omit those fields and the HUD hides the corresponding
+rows.
+
+### Minimal placeholder (temperature only)
+
+```sh
+#!/usr/bin/env bash
+T=$(sensors | awk '/^edge:/ {gsub(/[+°C]/,"",$2); print int($2); exit}')
+[ -n "$T" ] && printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\n"}\n' "$T" "$T"
+```
+
+If the script is missing, non-executable, returns empty, or prints
+invalid JSON — the GPU panel just hides. No errors.
 
 ---
 
