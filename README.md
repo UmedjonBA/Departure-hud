@@ -198,95 +198,24 @@ The loader accepts **JSONC** (JSON with `// line` and `/* block */`
 comments). Comments are stripped before parsing, so feel free to keep
 documentation right next to each key in your own file.
 
-### Full reference
+### Getting a starter config
 
-```jsonc
-{
-  // ─── Appearance ─────────────────────────────────────────────────
-  "scale":          1.0,         // (float) multiplier for the base 1180×600 layout.
-                                 //         0.5 = half-size, 2.0 = double, etc.
-                                 //         Ignored if autoScale is true.
+The binary ships an annotated template (`config.json`) with every
+option present and a comment next to each one explaining what it does
+and what the alternatives are. Drop it into the standard location:
 
-  "autoScale":      false,       // (bool) when true, compute `scale` from the screen size.
-                                 //        Works on any aspect ratio (16:9, 21:9, 32:9,
-                                 //        portrait, 4:3, …) — uniform scaling, never overflows.
-
-  "autoScaleFit":   0.7,         // (float, 0.1–1.0) only used with autoScale=true.
-                                 //        Target fraction of the screen the HUD may occupy:
-                                 //          scale = clamp(min(W*fit/1180, H*fit/600), 0.5, 4.0)
-                                 //        0.5 = HUD up to half the screen, 0.9 = nearly full.
-
-  "useBackground":  false,       // (bool) false → transparent backdrop (wallpaper shows through).
-                                 //        true  → paint bgColor behind the HUD.
-
-  "accentColor":    "#f08a28",   // (string "#rrggbb") main UI color: text, bars, frames.
-  "hotColor":       "#ff5a3c",   // (string "#rrggbb") alert color: thresholds, low battery.
-  "bgColor":        "#0d0d0d",   // (string "#rrggbb") background fill, only used if useBackground=true.
-
-  // ─── Data sources ───────────────────────────────────────────────
-  "updateMs":       1000,        // (int) polling interval, ms.
-                                 //       200  = very smooth, hits /proc 5×/s
-                                 //       2000 = relaxed, easier on the battery
-
-  "disksToShow":    "/,/home",   // (string, comma-separated) mount points for the DISK panel.
-                                 //       e.g. "/,/home,/mnt/data"
-                                 //       Each must be a real mount point or it's silently skipped.
-
-  "netInterface":   "",          // (string) pin a NIC by name ("eth0", "wlp3s0", "wg0"…).
-                                 //          empty  → use netMode below.
-
-  "netMode":        "sum",       // (string) only used when netInterface is empty:
-                                 //   "sum"  → add traffic across all non-loopback interfaces
-                                 //   "auto" → display the interface that is busiest right now
-                                 //   (Anything else falls back to "auto"-style behaviour.)
-
-  // ─── Thermal alert thresholds (°C) ──────────────────────────────
-  // Values above 95% of these glow in hotColor on the THERM panel.
-  "cpuMaxTemp":     90,          // (int, °C) CPU
-  "gpuMaxTemp":     85,          // (int, °C) GPU
-  "ssdMaxTemp":     65,          // (int, °C) NVMe / SSD
-
-  // ─── Center scope ───────────────────────────────────────────────
-  "showScope":      true,        // (bool)  false → hide the wireframe-sphere panel entirely.
-  "starCount":      30,          // (int)   warp-speed star count, 0 disables the effect.
-
-  // ─── Optional GPU info script ───────────────────────────────────
-  // Path to an executable that prints a single line of JSON like:
-  //   {"text":"50°C","tooltip":"Temperature: 50°C\nUtilization: 39%\nPower Usage: 6.24/[N/A] W\nClock Speed: 375/2100 MHz"}
-  // If the path doesn't exist or isn't executable, the GPU panel hides.
-  // ~ at the start is expanded to $HOME.
-  "gpuScriptPath":  "~/.local/bin/gpuinfo.sh",
-
-  // ─── Wayland surface placement (only honoured with layer-shell) ─
-  "screen":         "",          // (string) single-monitor mode.
-                                 //          "" = primary screen.
-                                 //          Otherwise an output name: "DP-1", "eDP-1", "HDMI-A-1"…
-                                 //          Get yours from `wlr-randr` or `hyprctl monitors`.
-                                 //          Ignored when "screens" is set below.
-
-  "screens":        [],          // (array | string) multi-monitor mode.
-                                 //          []                    → use the singular "screen" above
-                                 //          "*"                   → spawn a HUD on every connected output
-                                 //          ["DP-1", "HDMI-A-1"]  → spawn on these specific outputs
-                                 //          Unknown names are silently skipped.
-
-  "layer":          "bottom",    // (string) layer-shell namespace:
-                                 //   "background" → below the wallpaper handler
-                                 //   "bottom"     → above wallpaper, below normal windows (default — desktop widget)
-                                 //   "top"        → above normal windows, below overlays/notifications
-                                 //   "overlay"    → above everything (notifications, lockscreens)
-
-  "clickThrough":   true,        // (bool)  true → area around the HUD is click-through, only HUD pixels
-                                 //                receive input. Implemented via QWindow::setMask().
-                                 //         false → whole layer surface intercepts input.
-                                 //                Combine with keyboardFocus=ondemand to make it interactive.
-
-  "keyboardFocus":  "none"       // (string) keyboard interactivity for the layer surface:
-                                 //   "none"      → never receives keyboard input (default)
-                                 //   "ondemand"  → grabs focus when clicked
-                                 //   "exclusive" → grabs focus exclusively (only use if you know why)
-}
+```sh
+departure-hud --install-config
+# → ~/.config/departure-hud/config.json
 ```
+
+That file is the canonical reference — open it in an editor and read
+the comments. The README below only covers topics that don't fit
+inside inline comments (aspect-ratio formula, multi-monitor design,
+worked examples).
+
+(`--install-config` refuses to overwrite an existing file. Delete or
+move yours if you want a fresh annotated copy.)
 
 ### Sizing on different monitors
 
@@ -326,17 +255,18 @@ take ~90% of the height. Conversely, set 0.5 for a more compact look.
 If you want a specific scale regardless of monitor, keep `"autoScale":
 false` and set `"scale"` directly.
 
-### Where each key matters
+### Layer-shell vs frameless-window mode
 
-- **Without layer-shell** (`layer-shell-qt` not installed, or
-  `-DENABLE_LAYER_SHELL=OFF`): `layer`, `keyboardFocus`, `clickThrough`
-  and `screen` only partially apply — the HUD is a regular frameless
-  transparent window. `clickThrough` still works (it's a `QWindow` mask).
-  Stacking and exact screen pinning are up to your compositor's window
-  rules.
+When the binary was built **with** `layer-shell-qt`, every key in the
+Wayland placement block (`layer`, `screen`/`screens`, `clickThrough`,
+`keyboardFocus`) is honoured by the compositor.
 
-- **With layer-shell**: every key in the *Wayland surface placement*
-  block is honoured.
+**Without** layer-shell — `layer-shell-qt` wasn't found at build time,
+or `-DENABLE_LAYER_SHELL=OFF` was passed — the HUD falls back to a
+regular frameless transparent window. `layer` and `screen`/`screens`
+become hints at best; stacking and pinning are then up to your
+compositor's window rules. `clickThrough` still works (it's a
+`QWindow::setMask()` call, not a layer-shell-only feature).
 
 ### Multiple monitors
 
@@ -413,18 +343,6 @@ asleep does polling pause.
   "netMode": "auto"
 }
 ```
-
-### Bootstrapping the config
-
-The binary ships an annotated `config.json` (a JSONC template — every
-option present, with inline comments explaining each). To drop it into
-the standard location:
-```sh
-departure-hud --install-config
-# → ~/.config/departure-hud/config.json
-```
-(It refuses to overwrite an existing file. Delete or move yours if you
-want a fresh annotated copy.)
 
 ---
 
