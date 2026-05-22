@@ -351,51 +351,37 @@ number followed by `°C`).
 
 Point `gpuScriptPath` at the executable. `~` expands to `$HOME`.
 
-### Example: NVIDIA (`nvidia-smi`)
+### Ready-made scripts
+
+The repo ships four working scripts in [`scripts/`](scripts/):
+
+| Script                              | Best for                       | Extra packages |
+| ----------------------------------- | ------------------------------ | -------------- |
+| [`scripts/gpuinfo-nvidia.sh`](scripts/gpuinfo-nvidia.sh)   | NVIDIA proprietary driver | `nvidia-utils` |
+| [`scripts/gpuinfo-amd.sh`](scripts/gpuinfo-amd.sh)         | Modern AMD / Radeon       | `amdgpu_top`, `jq` |
+| [`scripts/gpuinfo-intel.sh`](scripts/gpuinfo-intel.sh)     | Intel integrated / Arc    | `intel-gpu-tools`, `jq` (setcap) |
+| [`scripts/gpuinfo-sensors.sh`](scripts/gpuinfo-sensors.sh) | Anything via lm_sensors   | `lm_sensors` |
+
+Install whichever matches your hardware:
 
 ```sh
-#!/usr/bin/env bash
-# ~/.local/bin/gpuinfo.sh — NVIDIA via nvidia-smi
-read TEMP UTIL POW POW_MAX CLK CLK_MAX < <(
-  nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.max_limit,clocks.gr,clocks.max.gr \
-             --format=csv,noheader,nounits | tr ',' ' '
-)
-printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\nUtilization: %s%%\\nPower Usage: %s/%s W\\nClock Speed: %s/%s MHz"}\n' \
-       "$TEMP" "$TEMP" "$UTIL" "$POW" "$POW_MAX" "$CLK" "$CLK_MAX"
-```
-```sh
+cp scripts/gpuinfo-nvidia.sh ~/.local/bin/gpuinfo.sh   # or one of the others
 chmod +x ~/.local/bin/gpuinfo.sh
 ```
 
-### Example: AMD (`amdgpu_top`)
-
-```sh
-#!/usr/bin/env bash
-# ~/.local/bin/gpuinfo.sh — AMD via amdgpu_top (pacman -S amdgpu_top)
-J=$(amdgpu_top -d -J -n 1 -s 50 2>/dev/null | jq '.devices[0]')
-TEMP=$(jq -r '.Sensors."Edge Temperature".value // 0'   <<<"$J")
-UTIL=$(jq -r '.gpu_activity.GFX.value // 0'             <<<"$J")
-POW=$( jq -r '.Sensors."Average Power".value // 0'      <<<"$J")
-CLK=$( jq -r '.gpu_clock.value // 0'                    <<<"$J")
-CLK_MAX=$(jq -r '.gpu_clock.max // 0'                   <<<"$J")
-printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\nUtilization: %s%%\\nPower Usage: %s/[N/A] W\\nClock Speed: %s/%s MHz"}\n' \
-       "$TEMP" "$TEMP" "$UTIL" "$POW" "$CLK" "$CLK_MAX"
+Then in the config:
+```json
+{ "gpuScriptPath": "~/.local/bin/gpuinfo.sh" }
 ```
 
-### Example: Intel (`intel_gpu_top`)
-
-`intel_gpu_top -J -s 1000` emits a stream of JSON snapshots. Capture
-one frame and reshape it; integrated GPUs don't usually expose
-power/clock, so omit those fields and the HUD hides the corresponding
-rows.
-
-### Minimal placeholder (temperature only)
-
+Verify before running the HUD:
 ```sh
-#!/usr/bin/env bash
-T=$(sensors | awk '/^edge:/ {gsub(/[+°C]/,"",$2); print int($2); exit}')
-[ -n "$T" ] && printf '{"text":"%s°C","tooltip":"Temperature: %s°C\\n"}\n' "$T" "$T"
+~/.local/bin/gpuinfo.sh
+# expected: a single line of JSON
 ```
+
+See [`scripts/README.md`](scripts/README.md) for the contract and a
+template if you want to write your own.
 
 If the script is missing, non-executable, returns empty, or prints
 invalid JSON — the GPU panel just hides. No errors.
@@ -518,6 +504,7 @@ this machine. Either install the runtime package or rebuild with
 | `Hud.qml`                    | pure presentation — binds against `sys` and `settings` |
 | `config.json`                | sample config (also the source for `--install-config`) |
 | `fonts/`                     | bundled Departure Mono (embedded into the binary)      |
+| `scripts/`                   | ready-to-use GPU info scripts (NVIDIA / AMD / Intel)   |
 | `preview.png`                | screenshot for this README                             |
 
 ---
