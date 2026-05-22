@@ -204,11 +204,14 @@ doesn't support comments; the `//` lines below are documentation only.
                                  //         0.5 = half-size, 2.0 = double, etc.
                                  //         Ignored if autoScale is true.
 
-  "autoScale":      false,       // (bool) when true, pick `scale` from the screen size,
-                                 //        normalised to a 1920×1080 baseline:
-                                 //          scale = clamp(min(W/1920, H/1080), 0.5, 3.0)
-                                 //        4K → ~2.0, 1440p → ~1.33, 720p → ~0.67.
-                                 //        Falls back to 1.0 if the screen is unknown.
+  "autoScale":      false,       // (bool) when true, compute `scale` from the screen size.
+                                 //        Works on any aspect ratio (16:9, 21:9, 32:9,
+                                 //        portrait, 4:3, …) — uniform scaling, never overflows.
+
+  "autoScaleFit":   0.7,         // (float, 0.1–1.0) only used with autoScale=true.
+                                 //        Target fraction of the screen the HUD may occupy:
+                                 //          scale = clamp(min(W*fit/1180, H*fit/600), 0.5, 4.0)
+                                 //        0.5 = HUD up to half the screen, 0.9 = nearly full.
 
   "useBackground":  false,       // (bool) false → transparent backdrop (wallpaper shows through).
                                  //        true  → paint bgColor behind the HUD.
@@ -273,6 +276,44 @@ doesn't support comments; the `//` lines below are documentation only.
                                  //   "exclusive" → grabs focus exclusively (only use if you know why)
 }
 ```
+
+### Sizing on different monitors
+
+The HUD's design surface is 1180×600 logical pixels (≈ 1.97:1, a wide
+horizontal panel). With `scale` it grows uniformly — so the layout never
+distorts, just gets bigger or smaller. The HUD is always centered on
+the chosen screen; everything around it is transparent and click-through,
+so unusual aspect ratios just leave more / less empty space around it.
+
+With `"autoScale": true` the C++ side picks the largest scale factor
+such that the HUD still occupies at most `autoScaleFit` of the screen
+in **both** width and height. Whichever axis is more constraining wins,
+so the HUD never overflows. The formula:
+
+```
+scale = clamp(min(W * fit / 1180, H * fit / 600), 0.5, 4.0)
+```
+
+Examples with the default `autoScaleFit: 0.7`:
+
+| Monitor                       | Ratio   | Auto scale | HUD size (logical px) |
+| ----------------------------- | ------- | ---------- | --------------------- |
+| 1366×768 (laptop)             | 16:9    | 0.81       | 955 × 486             |
+| 1920×1080 (1080p)             | 16:9    | 1.14       | 1344 × 684            |
+| 2560×1440 (1440p)             | 16:9    | 1.52       | 1792 × 911            |
+| 3840×2160 (4K)                | 16:9    | 2.28       | 2690 × 1368           |
+| 1920×1200 (16:10)             | 16:10   | 1.14       | 1344 × 684            |
+| 3440×1440 (UWQHD)             | 21:9    | 1.68       | 1982 × 1008           |
+| 5120×1440 (super-ultrawide)   | 32:9    | 1.68       | 1982 × 1008           |
+| 1080×1920 (vertical / portrait) | 9:16  | 0.64       | 755 × 384             |
+| 1024×768 (4:3)                | 4:3     | 0.61       | 720 × 366             |
+
+If `autoScaleFit` 0.7 makes it too small on your screen (ultrawides hit
+the height ceiling fast), bump it: `"autoScaleFit": 0.9` lets the HUD
+take ~90% of the height. Conversely, set 0.5 for a more compact look.
+
+If you want a specific scale regardless of monitor, keep `"autoScale":
+false` and set `"scale"` directly.
 
 ### Where each key matters
 

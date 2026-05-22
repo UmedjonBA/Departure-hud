@@ -36,16 +36,26 @@ static QScreen* pickScreen(const QString& name) {
     return QGuiApplication::primaryScreen();
 }
 
-// Auto-scale relative to a 1920×1080 baseline. The HUD has a fixed 1180×600
-// design surface; we just pick a scale factor so it occupies a similar
-// fraction of any monitor. Clamped so it stays usable on tiny / huge screens.
-static qreal computeAutoScale(QScreen* s) {
+// Auto-scale to a configurable fraction of the screen. The HUD's design
+// surface is fixed at 1180×600 (≈ 1.97:1, a wide horizontal panel) and
+// is always scaled uniformly to preserve its proportions. The factor is
+// picked so the HUD takes up at most `fit` of the screen's width AND at
+// most `fit` of the screen's height — whichever is more constraining
+// wins, so the HUD never overflows on any aspect ratio (21:9, 32:9,
+// portrait, 4:3, square, …).
+//
+// Defaults: fit = 0.70 → HUD targets ~70% of the smaller dimension.
+// Clamp range [0.5, 4.0] keeps it usable on tiny / huge displays.
+static qreal computeAutoScale(QScreen* s, qreal fit) {
+    constexpr qreal baseW = 1180.0;
+    constexpr qreal baseH = 600.0;
     if (!s) return 1.0;
     const QRect g = s->geometry();
     if (g.width() <= 0 || g.height() <= 0) return 1.0;
-    const qreal sx = g.width()  / 1920.0;
-    const qreal sy = g.height() / 1080.0;
-    return qBound<qreal>(0.5, qMin(sx, sy), 3.0);
+    fit = qBound<qreal>(0.1, fit, 1.0);
+    const qreal sx = (g.width()  * fit) / baseW;
+    const qreal sy = (g.height() * fit) / baseH;
+    return qBound<qreal>(0.5, qMin(sx, sy), 4.0);
 }
 
 #ifdef HAVE_LAYER_SHELL
@@ -116,11 +126,12 @@ int main(int argc, char* argv[]) {
     QScreen* screen = pickScreen(settings.value("screen").toString());
 
     if (settings.value("autoScale", false).toBool()) {
-        const qreal s = computeAutoScale(screen);
+        const qreal fit = settings.value("autoScaleFit", 0.7).toDouble();
+        const qreal s   = computeAutoScale(screen, fit);
         settings["scale"] = s;
         fprintf(stderr,
-                "departure-hud: autoScale → %.2f (screen %dx%d)\n",
-                s,
+                "departure-hud: autoScale → %.2f (fit=%.2f, screen %dx%d)\n",
+                s, fit,
                 screen ? screen->geometry().width()  : 0,
                 screen ? screen->geometry().height() : 0);
     }
