@@ -1,0 +1,25 @@
+{
+  "scale": 1.0,
+  "useBackground": true,
+  "accentColor": "#f08a28",
+  "hotColor": "#ff5a3c",
+  "bgColor": "#0d0d0d",
+
+  "updateMs": 1000,
+  "disksToShow": "/,/home",
+  "netInterface": "",
+  "netMode": "sum",
+
+  "cpuMaxTemp": 90,
+  "gpuMaxTemp": 85,
+  "ssdMaxTemp": 65,
+
+  "showScope": true,
+  "starCount": 30,
+  "gpuScriptPath": "~/.local/bin/gpuinfo.sh",
+
+  "screen": "",
+  "layer": "bottom",
+  "clickThrough": true,
+  "keyboardFocus": "none"
+}
