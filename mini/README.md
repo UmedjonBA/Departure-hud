@@ -151,10 +151,21 @@ you want.
 
 ### Data sources
 
-- **GPU**: AMD (`amdgpu`/`nouveau`) and Intel (`i915`/`xe`) are read straight
-  from `/sys/class/drm` with no extra library — AMD reports load% and clock,
-  Intel reports clock. NVIDIA needs `DEPARTURE_HUD_NVML=1`, which `dlopen`s
-  `libnvidia-ml.so` (it pulls in ~6 MB of libcuda, hence opt-in).
+- **GPU**:
+  - **AMD** (`amdgpu`/`nouveau`) — load% (`gpu_busy_percent`) and clock
+    (`pp_dpm_sclk`) from `/sys/class/drm`, no extra library.
+  - **Intel** (`i915`/`xe`) — clock from `gt_*_freq_mhz`. Load% comes from
+    the i915 perf PMU (the same counters `intel_gpu_top` uses); the busiest
+    engine's busy-time is sampled each second. That counter is privileged,
+    so grant the binary access once:
+    ```sh
+    sudo setcap cap_perfmon+ep ./departure-hud-mini     # kernel ≥ 5.9
+    # older kernels: sudo setcap cap_sys_admin+ep ./departure-hud-mini
+    # or system-wide: sudo sysctl kernel.perf_event_paranoid=1
+    ```
+    Without it the GPU panel just shows the clock (load stays 0).
+  - **NVIDIA** — set `DEPARTURE_HUD_NVML=1` to `dlopen` `libnvidia-ml.so`
+    for load/clock/temp (it pulls in ~6 MB of libcuda, hence opt-in).
 - **Audio**: ALSA's `snd_mixer` on the `default` device, which maps to
   PipeWire/PulseAudio's ALSA plugin on modern setups. No scripts, no daemon
   client.

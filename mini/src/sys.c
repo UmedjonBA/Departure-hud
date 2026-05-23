@@ -6,12 +6,14 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/perf_event.h>
 #include <math.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/statvfs.h>
+#include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
 #include <time.h>
@@ -569,10 +571,94 @@ static void poll_brightness(sysinfo_t *out) {
 static bool gpu_from_sysfs(sysinfo_t *out);
 static bool gpu_from_nvml (sysinfo_t *out);
 
+/* ── Intel i915 GPU busy% via the i915 perf PMU ─────────────────────── */
+/* The i915 driver exposes per-engine "busy" counters (accumulated busy time
+ * in nanoseconds) through a perf PMU. We open the render/blit/video/enhance
+ * engine counters once and, on each poll, divide the busy-ns delta by the
+ * wall-clock delta to get utilisation. This is exactly how intel_gpu_top
+ * works; it needs no GL context and (for these global counters) no root. */
+
+static long perf_open(struct perf_event_attr *a, pid_t pid, int cpu,
+                      int group, unsigned long flags) {
+    return syscall(SYS_perf_event_open, a, pid, cpu, group, flags);
+}
+
+static struct {
+    int             fds[4];
+    unsigned long long prev[4];
+    struct timespec prev_t;
+    bool            inited;
+    bool            failed;
+} g_i915;
+
+static void i915_init(void) {
+    if (g_i915.inited || g_i915.failed) return;
+    for (int i = 0; i < 4; i++) g_i915.fds[i] = -1;
+
+    long type = read_long("/sys/devices/i915/type");
+    if (type < 0) { g_i915.failed = true; return; }
+
+    /* Engine "busy" configs, from the i915 PMU events dir (rcs/bcs/vcs/vecs). */
+    static const unsigned long long cfg[4] = { 0x0, 0x1000, 0x2000, 0x3000 };
+    int opened = 0;
+    for (int i = 0; i < 4; i++) {
+        struct perf_event_attr a;
+        memset(&a, 0, sizeof(a));
+        a.type   = (uint32_t)type;
+        a.size   = sizeof(a);
+        a.config = cfg[i];
+        /* Global device counter: pid=-1, cpu=0. */
+        int fd = (int)perf_open(&a, -1, 0, -1, PERF_FLAG_FD_CLOEXEC);
+        g_i915.fds[i] = fd;
+        if (fd >= 0) opened++;
+    }
+    if (!opened) { g_i915.failed = true; return; }
+
+    clock_gettime(CLOCK_MONOTONIC, &g_i915.prev_t);
+    for (int i = 0; i < 4; i++) {
+        unsigned long long v = 0;
+        if (g_i915.fds[i] >= 0 && read(g_i915.fds[i], &v, sizeof(v)) != sizeof(v))
+            v = 0;
+        g_i915.prev[i] = v;
+    }
+    g_i915.inited = true;
+}
+
+/* Returns true and sets *out_pct to the busiest engine's utilisation. The
+ * first call after init returns false (no interval to diff against yet). */
+static bool i915_busy_pct(double *out_pct) {
+    i915_init();
+    if (!g_i915.inited) return false;
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double wall = (now.tv_sec - g_i915.prev_t.tv_sec)
+                + (now.tv_nsec - g_i915.prev_t.tv_nsec) / 1e9;
+    if (wall <= 0.02) return false;
+
+    double best = 0;
+    for (int i = 0; i < 4; i++) {
+        if (g_i915.fds[i] < 0) continue;
+        unsigned long long v = 0;
+        if (read(g_i915.fds[i], &v, sizeof(v)) != sizeof(v)) continue;
+        double busy = (double)(v - g_i915.prev[i]) / 1e9;  /* seconds busy */
+        g_i915.prev[i] = v;
+        double pct = busy / wall * 100.0;
+        if (pct > best) best = pct;
+    }
+    g_i915.prev_t = now;
+    if (best < 0)   best = 0;
+    if (best > 100) best = 100;
+    *out_pct = best;
+    return true;
+}
+
 /* GPU via /sys/class/drm/card<N>/{device,gt_*_freq_mhz}.
  *   • amdgpu / nouveau   — load% (gpu_busy_percent) + DPM clock table
- *   • Intel i915 / xe    — clock only (gt_cur/max_freq_mhz); load% needs
- *                          perf events which we don't pull in.
+ *   • Intel i915 / xe    — clock from gt_*_freq_mhz; load% from the i915
+ *                          perf PMU when the process may open it (needs
+ *                          CAP_PERFMON or perf_event_paranoid<=1, else we
+ *                          silently fall back to clock-only).
  * Returns true if anything useful was found. */
 static bool gpu_from_sysfs(sysinfo_t *out) {
     DIR *d = opendir("/sys/class/drm");
@@ -631,6 +717,12 @@ static bool gpu_from_sysfs(sysinfo_t *out) {
             snprintf(p, sizeof(p), "%s/gt_max_freq_mhz", cardp);
             long v = read_long(p);
             if (v > 0) max_mhz = (int)v;
+        }
+
+        /* Intel load% from the i915 perf PMU (busiest engine). */
+        if (load_pct < 0 && strcmp(vendor, "0x8086") == 0) {
+            double pct;
+            if (i915_busy_pct(&pct)) { load_pct = (int)(pct + 0.5); found_here = true; }
         }
 
         if (found_here) {
