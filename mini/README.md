@@ -45,7 +45,19 @@ Needs a Wayland compositor that implements `wlr-layer-shell-v1`
 | `DEPARTURE_HUD_ACCENT`   | `#RRGGBB` or `#AARRGGBB` | `#f08a28` |
 | `DEPARTURE_HUD_HOT`      | hex color | `#ff5a3c` |
 | `DEPARTURE_HUD_BG`       | `#RRGGBB` (opaque panel) or `#AARRGGBB` (translucent) | `#0d0d0d` opaque |
+| `DEPARTURE_HUD_OUTPUT`   | connector name to pin to, e.g. `DP-1`, `eDP-1` | compositor picks |
+| `DEPARTURE_HUD_SCALE`    | absolute scale factor (overrides fit-to-screen) | auto-fit |
 | `DEPARTURE_HUD_NVML`     | `1` to load `libnvidia-ml.so` for NVIDIA GPU stats | unset |
+
+Transparency: pass an 8-digit `#AARRGGBB` to `DEPARTURE_HUD_BG` — the first
+byte is alpha (`#000000` = fully opaque if you give 6 digits; `#A00d0d0d` ≈
+63% opaque). Bars and text always stay opaque; only the panel fill blends.
+
+Aspect ratio: the 1180×600 design is fit into the output with
+`min(W/1180, H/600)` so it keeps its proportions and letterboxes on any
+ratio (16:9, 21:9, portrait …). `DEPARTURE_HUD_SCALE` lets you force a size
+instead; an unknown `DEPARTURE_HUD_OUTPUT` prints the list of connector
+names the compositor exposes.
 
 `fullscreen` (default) scales the 1180×600 design up to fill the output —
 fonts are re-rendered at the scaled size so text stays crisp. Corner/center
