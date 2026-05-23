@@ -39,13 +39,19 @@ Needs a Wayland compositor that implements `wlr-layer-shell-v1`
 
 | variable | values | default |
 | --- | --- | --- |
-| `DEPARTURE_HUD_POSITION` | `center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `fullscreen` | `center` |
-| `DEPARTURE_HUD_LAYER`    | `overlay`, `top`, `bottom`, `background` | `overlay` |
+| `DEPARTURE_HUD_POSITION` | `fullscreen`, `center`, `top-left`, `top-right`, `bottom-left`, `bottom-right` | `fullscreen` |
+| `DEPARTURE_HUD_LAYER`    | `bottom`, `background`, `top`, `overlay` | `bottom` |
 | `DEPARTURE_HUD_DISKS`    | comma-separated mount paths, e.g. `/,/home` | `/` |
 | `DEPARTURE_HUD_ACCENT`   | `#RRGGBB` or `#AARRGGBB` | `#f08a28` |
 | `DEPARTURE_HUD_HOT`      | hex color | `#ff5a3c` |
-| `DEPARTURE_HUD_BG`       | hex color (panel; alpha forced to `E0`) | `#0d0d0d` |
+| `DEPARTURE_HUD_BG`       | `#RRGGBB` (opaque panel) or `#AARRGGBB` (translucent) | `#0d0d0d` opaque |
 | `DEPARTURE_HUD_NVML`     | `1` to load `libnvidia-ml.so` for NVIDIA GPU stats | unset |
+
+`fullscreen` (default) scales the 1180×600 design up to fill the output —
+fonts are re-rendered at the scaled size so text stays crisp. Corner/center
+positions use a native-size 1180×600 window. The default `bottom` layer makes
+the HUD a desktop widget (above the wallpaper, below windows); use
+`DEPARTURE_HUD_LAYER=overlay` to pin it on top.
 
 The font is loaded from `./fonts/`, `../fonts/`, or
 `/usr/share/departure-hud/fonts/`, in that order.
