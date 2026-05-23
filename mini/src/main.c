@@ -777,13 +777,23 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* HUD-sized window centered by the compositor. Saves ~5 MB of shm
-     * compared to a fullscreen overlay because the buffer is exactly the
-     * HUD bounds, and we don't pay to clear pixels we won't touch. */
+    /* Default: HUD-sized surface centered by the compositor. The user can
+     * override via DEPARTURE_HUD_POSITION = center | top-left | top-right |
+     * bottom-left | bottom-right | fullscreen. */
+    unsigned anchors = 0;
+    const char *pos = getenv("DEPARTURE_HUD_POSITION");
+    if (pos) {
+        if      (!strcmp(pos, "top-left"))     anchors = WL_ANCHOR_TOP    | WL_ANCHOR_LEFT;
+        else if (!strcmp(pos, "top-right"))    anchors = WL_ANCHOR_TOP    | WL_ANCHOR_RIGHT;
+        else if (!strcmp(pos, "bottom-left"))  anchors = WL_ANCHOR_BOTTOM | WL_ANCHOR_LEFT;
+        else if (!strcmp(pos, "bottom-right")) anchors = WL_ANCHOR_BOTTOM | WL_ANCHOR_RIGHT;
+        else if (!strcmp(pos, "fullscreen"))   anchors = WL_ANCHOR_ALL;
+        /* "center" or anything else falls through to 0. */
+    }
     wl_window_opts_t opts = {
         .width = HUD_W, .height = HUD_H,
         .layer = WL_LAYER_OVERLAY,
-        .anchors = 0,
+        .anchors = anchors,
         .click_through = true,
         .namespace_ = "departure-hud",
     };
