@@ -30,15 +30,17 @@
 #define HUD_W   1180
 #define HUD_H   600
 
-/* Background: fully transparent so the HUD floats over the desktop instead
- * of blacking out the whole screen. */
-#define COL_BG      rgba(0x00, 0x00, 0x00, 0x00)
-#define COL_BG_FILL rgba(0x0d, 0x0d, 0x0d, 0xE0)
-#define COL_FG      rgba(0xf0, 0x8a, 0x28, 0xFF)
-#define COL_FG_DIM  rgba(0x60, 0x37, 0x10, 0xFF)
-#define COL_FG_SOFT rgba(0x28, 0x16, 0x07, 0xFF)
-#define COL_HOT     rgba(0xff, 0x5a, 0x3c, 0xFF)
-#define COL_PILL_FG rgba(0x0a, 0x0a, 0x0a, 0xFF)
+/* Theme — initialized from compile-time defaults, then optionally overridden
+ * by DEPARTURE_HUD_ACCENT / DEPARTURE_HUD_HOT / DEPARTURE_HUD_BG before the
+ * first frame. We keep the fully-transparent BG separate so the surface
+ * floats over the desktop and the BG-fill rect controls panel opacity. */
+static uint32_t COL_BG      = 0x00000000u;
+static uint32_t COL_BG_FILL = 0xE00d0d0du;
+static uint32_t COL_FG      = 0xFFf08a28u;
+static uint32_t COL_FG_DIM  = 0xFF603710u;
+static uint32_t COL_FG_SOFT = 0xFF281607u;
+static uint32_t COL_HOT     = 0xFFff5a3cu;
+static uint32_t COL_PILL_FG = 0xFF0a0a0au;
 
 /* Layout constants — mirror the QML scaler block. */
 #define PAD_X   18
@@ -847,6 +849,44 @@ int main(int argc, char **argv) {
     if (disks_n) sopts.disks_to_show = disks_arr;
     sys_init(&sopts);
     audio_init();
+
+    /* DEPARTURE_HUD_ACCENT=#f08a28, DEPARTURE_HUD_HOT=#ff5a3c,
+     * DEPARTURE_HUD_BG=#0d0d0d (background panel; alpha forced to 0xE0).
+     * Derived FG_DIM / FG_SOFT follow the accent. */
+    #define PARSE_COLOR(env, def_argb) ({                                     \
+        uint32_t _r = (def_argb);                                             \
+        const char *_s = getenv(env);                                         \
+        if (_s && _s[0] == '#') {                                             \
+            char *_end; uint32_t _v = strtoul(_s + 1, &_end, 16);             \
+            ptrdiff_t _n = _end - (_s + 1);                                   \
+            if (_n == 6)  _r = 0xFF000000u | _v;                              \
+            else if (_n == 8) _r = _v;                                        \
+        }                                                                     \
+        _r;                                                                   \
+    })
+    COL_FG      = PARSE_COLOR("DEPARTURE_HUD_ACCENT", COL_FG);
+    COL_HOT     = PARSE_COLOR("DEPARTURE_HUD_HOT",    COL_HOT);
+    {
+        uint32_t bg = PARSE_COLOR("DEPARTURE_HUD_BG", 0xFF0d0d0du);
+        COL_BG_FILL = (bg & 0x00FFFFFFu) | 0xE0000000u;   /* keep alpha=0xE0 */
+    }
+    #undef PARSE_COLOR
+
+    /* Derive shaded variants from the accent so user overrides cascade. */
+    {
+        uint8_t a = (COL_FG >> 24) & 0xFF;
+        uint8_t r = (COL_FG >> 16) & 0xFF;
+        uint8_t g = (COL_FG >>  8) & 0xFF;
+        uint8_t b =  COL_FG        & 0xFF;
+        COL_FG_DIM  = ((uint32_t)a << 24) |
+                      ((uint32_t)(r / 2.4) << 16) |
+                      ((uint32_t)(g / 2.4) <<  8) |
+                       (uint32_t)(b / 2.4);
+        COL_FG_SOFT = ((uint32_t)a << 24) |
+                      ((uint32_t)(r / 6.0) << 16) |
+                      ((uint32_t)(g / 6.0) <<  8) |
+                       (uint32_t)(b / 6.0);
+    }
 
     sysinfo_t     si = {0};
     audio_state_t au = {0};
