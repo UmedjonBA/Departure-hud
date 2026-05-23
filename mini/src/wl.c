@@ -16,12 +16,21 @@
 #include <time.h>
 #include <unistd.h>
 
+#define WL_MAX_OUTPUTS 8
+typedef struct {
+    struct wl_output *output;
+    char              name[64];
+} wl_output_info_t;
+
 struct wl_ctx {
     struct wl_display        *display;
     struct wl_registry       *registry;
     struct wl_compositor     *compositor;
     struct wl_shm            *shm;
     struct zwlr_layer_shell_v1 *layer_shell;
+
+    wl_output_info_t  outputs[WL_MAX_OUTPUTS];
+    int               n_outputs;
 
     struct wl_surface          *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
@@ -41,6 +50,26 @@ struct wl_ctx {
 
 /* ── Wayland callbacks ──────────────────────────────────────────────── */
 
+/* wl_output v4 reports a stable connector name ("DP-1", "eDP-1", …) which is
+ * what users see in `wlr-randr` / compositor config. We only care about that
+ * event; the geometry/mode/scale ones are no-ops here. */
+static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y,
+                            int32_t pw, int32_t ph, int32_t sub,
+                            const char *make, const char *model, int32_t tr) {}
+static void output_mode(void *d, struct wl_output *o, uint32_t f,
+                        int32_t w, int32_t h, int32_t refresh) {}
+static void output_done(void *d, struct wl_output *o) {}
+static void output_scale(void *d, struct wl_output *o, int32_t factor) {}
+static void output_name(void *d, struct wl_output *o, const char *name) {
+    wl_output_info_t *oi = d;
+    snprintf(oi->name, sizeof(oi->name), "%s", name);
+}
+static void output_description(void *d, struct wl_output *o, const char *desc) {}
+static const struct wl_output_listener output_listener = {
+    .geometry = output_geometry, .mode = output_mode, .done = output_done,
+    .scale = output_scale, .name = output_name, .description = output_description,
+};
+
 static void registry_global(void *data, struct wl_registry *r, uint32_t id,
                             const char *iface, uint32_t ver) {
     wl_ctx_t *c = data;
@@ -52,6 +81,15 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t id,
         c->layer_shell = wl_registry_bind(r, id,
                                           &zwlr_layer_shell_v1_interface,
                                           ver < 4 ? ver : 4);
+    } else if (strcmp(iface, wl_output_interface.name) == 0) {
+        if (c->n_outputs < WL_MAX_OUTPUTS) {
+            wl_output_info_t *oi = &c->outputs[c->n_outputs++];
+            uint32_t bind_ver = ver < 4 ? ver : 4;   /* v4 gives the name event */
+            oi->output  = wl_registry_bind(r, id, &wl_output_interface, bind_ver);
+            oi->name[0] = '\0';
+            if (bind_ver >= 4)
+                wl_output_add_listener(oi->output, &output_listener, oi);
+        }
     }
 }
 static void registry_remove(void *d, struct wl_registry *r, uint32_t id) {}
@@ -159,6 +197,9 @@ wl_ctx_t *wl_open(const wl_window_opts_t *opts) {
         wl_close(c); return NULL;
     }
 
+    /* Second roundtrip so wl_output v4 name events land before we choose. */
+    if (c->n_outputs > 0) wl_display_roundtrip(c->display);
+
     c->surface = wl_compositor_create_surface(c->compositor);
     if (!c->surface) { wl_close(c); return NULL; }
 
@@ -169,8 +210,28 @@ wl_ctx_t *wl_open(const wl_window_opts_t *opts) {
         case WL_LAYER_TOP:        layer = ZWLR_LAYER_SHELL_V1_LAYER_TOP;        break;
         case WL_LAYER_OVERLAY:    layer = ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;    break;
     }
+
+    /* Pin to a named output if the user asked for one; otherwise let the
+     * compositor place us (usually the focused/primary output). */
+    struct wl_output *target = NULL;
+    if (opts->output_name && opts->output_name[0]) {
+        for (int i = 0; i < c->n_outputs; i++) {
+            if (strcmp(c->outputs[i].name, opts->output_name) == 0) {
+                target = c->outputs[i].output;
+                break;
+            }
+        }
+        if (!target) {
+            fprintf(stderr, "departure-hud-mini: output \"%s\" not found; "
+                            "available:", opts->output_name);
+            for (int i = 0; i < c->n_outputs; i++)
+                fprintf(stderr, " %s", c->outputs[i].name[0] ? c->outputs[i].name : "?");
+            fprintf(stderr, "\n");
+        }
+    }
+
     c->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        c->layer_shell, c->surface, NULL, layer,
+        c->layer_shell, c->surface, target, layer,
         opts->namespace_ ? opts->namespace_ : "departure-hud-mini");
     zwlr_layer_surface_v1_add_listener(c->layer_surface, &layer_listener, c);
 
@@ -216,6 +277,8 @@ void wl_close(wl_ctx_t *c) {
     if (c->shm_fd >= 0)   close(c->shm_fd);
     if (c->layer_surface) zwlr_layer_surface_v1_destroy(c->layer_surface);
     if (c->surface)       wl_surface_destroy(c->surface);
+    for (int i = 0; i < c->n_outputs; i++)
+        if (c->outputs[i].output) wl_output_destroy(c->outputs[i].output);
     if (c->layer_shell)   zwlr_layer_shell_v1_destroy(c->layer_shell);
     if (c->shm)           wl_shm_destroy(c->shm);
     if (c->compositor)    wl_compositor_destroy(c->compositor);

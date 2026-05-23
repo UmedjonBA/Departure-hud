@@ -766,14 +766,21 @@ int main(int argc, char **argv) {
         .anchors = anchors,
         .click_through = true,
         .namespace_ = "departure-hud",
+        .output_name = getenv("DEPARTURE_HUD_OUTPUT"),  /* NULL → compositor picks */
     };
     wl_ctx_t *wl = wl_open(&opts);
     if (!wl) return 1;
 
-    /* Now that the surface is configured we know the real size; pick the
-     * scale that fits the design surface into it (Qt's min(W/1180,H/600)). */
+    /* Scale: by default fit the 1180×600 design into the output preserving
+     * aspect ratio (Qt's min(W/1180, H/600)) and letterbox the rest.
+     * DEPARTURE_HUD_SCALE overrides with an absolute factor (1.0 = native
+     * design size, 2.0 = double, …). */
     fb_t fb0 = wl_framebuffer(wl);
-    g_scale = fmin((double)fb0.w / HUD_W, (double)fb0.h / HUD_H);
+    const char *scale_env = getenv("DEPARTURE_HUD_SCALE");
+    if (scale_env && *scale_env)
+        g_scale = strtod(scale_env, NULL);
+    else
+        g_scale = fmin((double)fb0.w / HUD_W, (double)fb0.h / HUD_H);
     if (g_scale < 0.3) g_scale = 0.3;
     if (g_scale > 6.0) g_scale = 6.0;
 

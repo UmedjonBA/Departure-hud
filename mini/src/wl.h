@@ -29,6 +29,7 @@ typedef struct {
     unsigned   anchors;          /* OR of WL_ANCHOR_*. 0 → centered by compositor. */
     bool       click_through;    /* empty input region; mouse passes through. */
     const char *namespace_;      /* layer-shell scope name, e.g. "departure-hud" */
+    const char *output_name;     /* connector name (e.g. "DP-1"); NULL → compositor picks */
 } wl_window_opts_t;
 
 /* Connect to the compositor, create the surface, allocate the shm buffer.
