@@ -369,7 +369,8 @@ static int batt_section(fb_t *fb, fonts_t *F, int x, int y, int w,
     kv_block(fb, F, x,          y2, half, "STATE", si->bat_state, false);
     char rate[32];
     snprintf(rate, sizeof(rate), "%s%.1fW",
-             si->bat_rate_w >= 0 ? "+" : "-", fabs(si->bat_rate_w));
+             si->bat_rate_w >= 0 ? "+" : "\xe2\x88\x92",  /* U+2212 minus */
+             fabs(si->bat_rate_w));
     kv_block(fb, F, x + half + 10, y2, half, "RATE", rate, true);
 
     int y3 = y2 + font_line_height(F->small) + font_line_height(F->body) + 4;
@@ -406,7 +407,7 @@ static int net_section(fb_t *fb, fonts_t *F, int x, int y, int w,
                        const sysinfo_t *si) {
     y = section_header(fb, F, x, y, w, "NET");
     char hdr[128];
-    snprintf(hdr, sizeof(hdr), "v DOWN / ^ UP  [%s]",
+    snprintf(hdr, sizeof(hdr), "\xe2\x86\x93 DOWN / \xe2\x86\x91 UP  [%s]",
              si->net_iface[0] ? si->net_iface : "-");
     txt(fb, F->small, x, y, hdr, COL_FG);
     y += font_line_height(F->small);
@@ -486,10 +487,10 @@ static void pitch_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
         txt(fb, F->body, x + 10, start_y + i * row_h, buf, col);
     }
 
-    /* Animated marker — uses '<' since the font may not have ◂. */
+    /* Animated marker (◂ U+25C2). */
     int marker_y = start_y + (int)(f * (n - 1) * row_h)
                           - font_line_height(F->label) / 2 + row_h / 2;
-    txt(fb, F->label, x + 38, marker_y, "<", COL_FG);
+    txt(fb, F->label, x + 38, marker_y, "\xe2\x97\x82", COL_FG);
 }
 
 /* ── Stars ─────────────────────────────────────────────────────────── */
