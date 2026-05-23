@@ -51,9 +51,10 @@ static uint32_t COL_PILL_FG = 0xFF0a0a0au;
 #define TOP_H   24
 #define BOT_H   38
 
-#define F_SMALL 9
-#define F_BODY  11
-#define F_LABEL 13
+#define F_SMALL  9
+#define F_BODY   11
+#define F_LABEL  13
+#define F_MARKER 30   /* PitchStack "◂" — big like the Qt build (pixelSize 32) */
 
 #define N_STARS 20
 
@@ -65,6 +66,7 @@ typedef struct {
     font_t *small;
     font_t *body;
     font_t *label;
+    font_t *marker;
 } fonts_t;
 
 typedef struct {
@@ -421,18 +423,26 @@ static int display_section(fb_t *fb, fonts_t *F, int x, int y, int w,
 
 /* ── Year / pitch stacks ────────────────────────────────────────────── */
 
+/* Both stacks are vertically centered inside the mid-row, like the Qt
+ * Columns (anchors.verticalCenter). */
+
 static void year_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h) {
-    (void)h;
-    txt_right(fb, F->small, x + w - SC(10), y, "YEAR", COL_FG);
-    int start_y = y + font_line_height(F->small) + SC(6);
-    int row_h   = SC(18);
+    int lh_s  = font_line_height(F->small);
+    int row_h = SC(18);
+    int content_h = lh_s + SC(6) + 11 * row_h;
+    int start = y + (h - content_h) / 2;
+    if (start < y) start = y;
+
+    txt_right(fb, F->small, x + w - SC(10), start, "YEAR", COL_FG);
+    int rows_y = start + lh_s + SC(6);
+
     time_t now = time(NULL);
     struct tm *tm = localtime(&now);
     int cur = tm->tm_year + 1900;
     for (int i = 0; i < 11; i++) {
         int year = 2020 + i;
         char buf[8]; snprintf(buf, sizeof(buf), "%d", year);
-        int row_y = start_y + i * row_h;
+        int row_y = rows_y + i * row_h;
         bool sel = (year == cur);
         int yw = font_text_width(F->body, buf);
         int yx = x + w - SC(10) - yw;
@@ -446,15 +456,19 @@ static void year_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h) {
 
 static void pitch_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
                         double t) {
-    (void)w; (void)h;
+    (void)w;
     static const int scale[] = { 30, 25, 20, 15, 10, 5, 0,
                                 -5, -10, -15, -20, -25, -30 };
     int n = sizeof(scale) / sizeof(scale[0]);
-    int row_h = SC(18);
+    int lh_s  = font_line_height(F->small);
+    int row_h = SC(16);
+    int content_h = 2 * lh_s + SC(6) + n * row_h;
+    int start = y + (h - content_h) / 2;
+    if (start < y) start = y;
 
-    txt(fb, F->small, x + SC(10), y, "ACCEL", COL_FG);
-    txt(fb, F->small, x + SC(10), y + font_line_height(F->small), "FPS2", COL_FG);
-    int start_y = y + 2 * font_line_height(F->small) + SC(6);
+    txt(fb, F->small, x + SC(10), start,         "ACCEL",        COL_FG);
+    txt(fb, F->small, x + SC(10), start + lh_s,  "FPS\xc2\xb2",  COL_FG);
+    int rows_y = start + 2 * lh_s + SC(6);
 
     double v = sin(t * 0.16) * 18.0 + sin(t * 0.34 + 1.5) * 9.0 +
                sin(t * 0.56 + 0.7) * 4.0;
@@ -467,12 +481,13 @@ static void pitch_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
         char buf[8];
         char sign = scale[i] > 0 ? '+' : (scale[i] < 0 ? '-' : ' ');
         snprintf(buf, sizeof(buf), "%c%02d", sign, abs(scale[i]));
-        txt(fb, F->body, x + SC(10), start_y + i * row_h, buf,
+        txt(fb, F->body, x + SC(10), rows_y + i * row_h, buf,
             (i == near_idx) ? COL_FG : COL_FG_DIM);
     }
-    int marker_y = start_y + (int)(f * (n - 1) * row_h)
-                          - font_line_height(F->label) / 2 + row_h / 2;
-    txt(fb, F->label, x + SC(38), marker_y, "\xe2\x97\x82", COL_FG);
+    /* Marker (◂) tracks the continuous value, vertically centered on its row. */
+    int marker_y = rows_y + (int)(f * (n - 1) * row_h)
+                          - font_line_height(F->marker) / 2 + row_h / 2;
+    txt(fb, F->marker, x + SC(34), marker_y, "\xe2\x97\x82", COL_FG);
 }
 
 /* ── Stars ─────────────────────────────────────────────────────────── */
@@ -785,11 +800,12 @@ int main(int argc, char **argv) {
     if (g_scale > 6.0) g_scale = 6.0;
 
     fonts_t F = {
-        .small = font_open(fp, SC(F_SMALL)),
-        .body  = font_open(fp, SC(F_BODY)),
-        .label = font_open(fp, SC(F_LABEL)),
+        .small  = font_open(fp, SC(F_SMALL)),
+        .body   = font_open(fp, SC(F_BODY)),
+        .label  = font_open(fp, SC(F_LABEL)),
+        .marker = font_open(fp, SC(F_MARKER)),
     };
-    if (!F.small || !F.body || !F.label) {
+    if (!F.small || !F.body || !F.label || !F.marker) {
         fprintf(stderr, "departure-hud-mini: cannot load font at %s\n", fp);
         return 1;
     }
@@ -889,6 +905,7 @@ int main(int argc, char **argv) {
     close(tfd);
     audio_close();
     wl_close(wl);
+    font_close(F.marker);
     font_close(F.label);
     font_close(F.body);
     font_close(F.small);
