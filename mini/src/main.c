@@ -791,9 +791,20 @@ int main(int argc, char **argv) {
         else if (!strcmp(pos, "fullscreen"))   anchors = WL_ANCHOR_ALL;
         /* "center" or anything else falls through to 0. */
     }
+    /* DEPARTURE_HUD_LAYER = overlay | top | bottom | background.
+     * Overlay (default) sits above normal windows; bottom/background lets
+     * windows cover the HUD. */
+    wl_layer_t layer = WL_LAYER_OVERLAY;
+    const char *ls = getenv("DEPARTURE_HUD_LAYER");
+    if (ls) {
+        if      (!strcmp(ls, "top"))        layer = WL_LAYER_TOP;
+        else if (!strcmp(ls, "bottom"))     layer = WL_LAYER_BOTTOM;
+        else if (!strcmp(ls, "background")) layer = WL_LAYER_BACKGROUND;
+    }
+
     wl_window_opts_t opts = {
         .width = HUD_W, .height = HUD_H,
-        .layer = WL_LAYER_OVERLAY,
+        .layer = layer,
         .anchors = anchors,
         .click_through = true,
         .namespace_ = "departure-hud",
@@ -809,7 +820,32 @@ int main(int argc, char **argv) {
     };
     timerfd_settime(tfd, 0, &it, NULL);
 
-    sys_init(NULL);
+    /* Optional disk mount list — comma-separated path list, e.g.
+     *   DEPARTURE_HUD_DISKS=/,/home,/data
+     * We split into a NULL-terminated array of pointers into a private copy. */
+    static const char *disks_arr[SYS_MAX_DISKS + 1];
+    static char        disks_buf[512];
+    int disks_n = 0;
+    {
+        const char *raw = getenv("DEPARTURE_HUD_DISKS");
+        if (raw && *raw) {
+            snprintf(disks_buf, sizeof(disks_buf), "%s", raw);
+            char *save = NULL;
+            for (char *tok = strtok_r(disks_buf, ",", &save);
+                 tok && disks_n < SYS_MAX_DISKS;
+                 tok = strtok_r(NULL, ",", &save)) {
+                /* Trim spaces. */
+                while (*tok == ' ') tok++;
+                size_t l = strlen(tok);
+                while (l > 0 && tok[l - 1] == ' ') tok[--l] = '\0';
+                if (*tok) disks_arr[disks_n++] = tok;
+            }
+            disks_arr[disks_n] = NULL;
+        }
+    }
+    sys_opts_t sopts = { 0 };
+    if (disks_n) sopts.disks_to_show = disks_arr;
+    sys_init(&sopts);
     audio_init();
 
     sysinfo_t     si = {0};
