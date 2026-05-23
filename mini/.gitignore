@@ -1,0 +1,4 @@
+src/gen/
+src/*.o
+departure-hud-mini
+fonts
