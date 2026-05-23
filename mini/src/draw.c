@@ -165,6 +165,15 @@ void draw_arc(fb_t *fb, int cx, int cy, int r,
     }
 }
 
+void draw_tri_left(fb_t *fb, int tip_x, int mid_y, int w, int h,
+                   uint32_t color) {
+    if (w <= 0 || h <= 0) return;
+    for (int col = 0; col <= w; col++) {
+        int half = (col * (h / 2)) / w;     /* widens toward the base */
+        draw_vline(fb, tip_x + col, mid_y - half, half * 2 + 1, color);
+    }
+}
+
 void draw_thick_line(fb_t *fb, int x0, int y0, int x1, int y1,
                      int thickness, uint32_t color) {
     /* For our 2-pixel needles a plain double-stroke offset by 1 pixel is

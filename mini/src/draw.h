@@ -54,3 +54,8 @@ void draw_arc(fb_t *fb, int cx, int cy, int r,
 /* Thick line, approximated as two parallel one-pixel lines. */
 void draw_thick_line(fb_t *fb, int x0, int y0, int x1, int y1,
                      int thickness, uint32_t color);
+
+/* Filled left-pointing triangle ("◂"): tip at (tip_x, mid_y), base of height
+ * `h` at tip_x + w. Used for the PitchStack marker (drawn directly so we don't
+ * depend on the font having U+25C2). */
+void draw_tri_left(fb_t *fb, int tip_x, int mid_y, int w, int h, uint32_t color);

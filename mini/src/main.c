@@ -54,7 +54,6 @@ static uint32_t COL_PILL_FG = 0xFF0a0a0au;
 #define F_SMALL  9
 #define F_BODY   11
 #define F_LABEL  13
-#define F_MARKER 30   /* PitchStack "◂" — big like the Qt build (pixelSize 32) */
 
 #define N_STARS 20
 
@@ -66,7 +65,6 @@ typedef struct {
     font_t *small;
     font_t *body;
     font_t *label;
-    font_t *marker;
 } fonts_t;
 
 typedef struct {
@@ -149,6 +147,16 @@ static int bar_row(fb_t *fb, fonts_t *F, int x, int y, int w,
     }
     txt(fb, F->body, x + bar_w + gap, y, value, hot ? COL_HOT : COL_FG);
     return y + font_line_height(F->body) + SC(2);
+}
+
+/* Bar row with a fixed-width label column on the left (used for the CPU
+ * core list: "C0", "C1", … and the "ALL" aggregate). */
+static int labeled_bar(fb_t *fb, fonts_t *F, int x, int y, int w,
+                       const char *label, double pct, const char *val,
+                       bool hot) {
+    int lab_w = font_cell_width(F->body) * 4;   /* room for "C00" + gap */
+    txt(fb, F->body, x, y, label, hot ? COL_HOT : COL_FG);
+    return bar_row(fb, F, x + lab_w, y, w - lab_w, pct, val, hot);
 }
 
 static int kv_block(fb_t *fb, fonts_t *F, int x, int y, int w,
@@ -265,13 +273,17 @@ static int audio_section(fb_t *fb, fonts_t *F, int x, int y, int w,
 static int cpu_section(fb_t *fb, fonts_t *F, int x, int y, int w,
                        const sysinfo_t *si) {
     y = section_header(fb, F, x, y, w, "CPU");
-    txt(fb, F->small, x, y, "CORE LOAD %", COL_FG);
+    txt(fb, F->small, x, y, "TOTAL / CORE %", COL_FG);
     y += font_line_height(F->small);
-    /* Show every core, like the Qt build (it iterates all cpuPercents). */
+    /* Aggregate load bar first, then every core labelled C0..Cn. */
+    char v[16];
+    snprintf(v, sizeof(v), "%02d%%", (int)(si->cpu_avg + 0.5));
+    y = labeled_bar(fb, F, x, y, w, "ALL", si->cpu_avg, v, si->cpu_avg > 88);
     for (int i = 0; i < si->cpu_n; i++) {
-        char v[16];
+        char lab[8];
+        snprintf(lab, sizeof(lab), "C%d", i);
         snprintf(v, sizeof(v), "%02d%%", (int)(si->cpu_per[i] + 0.5));
-        y = bar_row(fb, F, x, y, w, si->cpu_per[i], v, si->cpu_per[i] > 88);
+        y = labeled_bar(fb, F, x, y, w, lab, si->cpu_per[i], v, si->cpu_per[i] > 88);
     }
     if (si->cpu_n > 0) {
         txt(fb, F->small, x, y + SC(4), "FREQ GHz", COL_FG);
@@ -484,10 +496,11 @@ static void pitch_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
         txt(fb, F->body, x + SC(10), rows_y + i * row_h, buf,
             (i == near_idx) ? COL_FG : COL_FG_DIM);
     }
-    /* Marker (◂) tracks the continuous value, vertically centered on its row. */
-    int marker_y = rows_y + (int)(f * (n - 1) * row_h)
-                          - font_line_height(F->marker) / 2 + row_h / 2;
-    txt(fb, F->marker, x + SC(34), marker_y, "\xe2\x97\x82", COL_FG);
+    /* Marker tracks the continuous value, centered on its row. Drawn as a
+     * filled triangle so it doesn't depend on the font carrying U+25C2. */
+    int marker_cy = rows_y + (int)(f * (n - 1) * row_h) + row_h / 2;
+    int tri = SC(14);
+    draw_tri_left(fb, x + SC(34), marker_cy, tri, tri, COL_FG);
 }
 
 /* ── Stars ─────────────────────────────────────────────────────────── */
@@ -803,9 +816,8 @@ int main(int argc, char **argv) {
         .small  = font_open(fp, SC(F_SMALL)),
         .body   = font_open(fp, SC(F_BODY)),
         .label  = font_open(fp, SC(F_LABEL)),
-        .marker = font_open(fp, SC(F_MARKER)),
     };
-    if (!F.small || !F.body || !F.label || !F.marker) {
+    if (!F.small || !F.body || !F.label) {
         fprintf(stderr, "departure-hud-mini: cannot load font at %s\n", fp);
         return 1;
     }
@@ -905,7 +917,6 @@ int main(int argc, char **argv) {
     close(tfd);
     audio_close();
     wl_close(wl);
-    font_close(F.marker);
     font_close(F.label);
     font_close(F.body);
     font_close(F.small);
