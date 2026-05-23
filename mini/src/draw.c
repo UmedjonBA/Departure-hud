@@ -1,4 +1,6 @@
 #include "draw.h"
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 static inline int clampi(int v, int lo, int hi) {
@@ -90,5 +92,89 @@ void draw_alpha_mask(fb_t *fb, int dst_x, int dst_y,
             if (a) *drow = blend_over(*drow, fg, a);
             drow++;
         }
+    }
+}
+
+static inline void put_px(fb_t *fb, int x, int y, uint32_t color) {
+    if ((unsigned)x < (unsigned)fb->w && (unsigned)y < (unsigned)fb->h) {
+        fb->px[(size_t)y * fb->stride + x] = color;
+    }
+}
+
+void draw_circle(fb_t *fb, int cx, int cy, int r, uint32_t color) {
+    if (r <= 0) return;
+    int x = r, y = 0, err = 1 - r;
+    while (x >= y) {
+        put_px(fb, cx + x, cy + y, color); put_px(fb, cx - x, cy + y, color);
+        put_px(fb, cx + x, cy - y, color); put_px(fb, cx - x, cy - y, color);
+        put_px(fb, cx + y, cy + x, color); put_px(fb, cx - y, cy + x, color);
+        put_px(fb, cx + y, cy - x, color); put_px(fb, cx - y, cy - x, color);
+        y++;
+        if (err < 0) err += 2 * y + 1;
+        else { x--; err += 2 * (y - x + 1); }
+    }
+}
+
+void draw_ellipse(fb_t *fb, int cx, int cy, int a, int b, int clip_r,
+                  uint32_t color) {
+    if (a <= 0 || b <= 0) return;
+    int cr2 = clip_r * clip_r;
+    /* Parametric sweep — 1 sample per pixel of the longer axis is enough. */
+    int steps = (a > b ? a : b) * 4;
+    if (steps < 16) steps = 16;
+    double last_px = 0, last_py = 0;
+    int first = 1;
+    for (int i = 0; i <= steps; i++) {
+        double t  = (double)i / steps * 2.0 * M_PI;
+        double dx = a * cos(t);
+        double dy = b * sin(t);
+        if (clip_r > 0 && dx * dx + dy * dy > cr2) {
+            first = 1;
+            continue;
+        }
+        int x = cx + (int)(dx + (dx >= 0 ? 0.5 : -0.5));
+        int y = cy + (int)(dy + (dy >= 0 ? 0.5 : -0.5));
+        put_px(fb, x, y, color);
+        /* Fill any gap between consecutive samples with a short line so the
+         * outline stays continuous on the wide axis. */
+        if (!first) {
+            int x0 = cx + (int)(last_px + (last_px >= 0 ? 0.5 : -0.5));
+            int y0 = cy + (int)(last_py + (last_py >= 0 ? 0.5 : -0.5));
+            if (abs(x - x0) > 1 || abs(y - y0) > 1)
+                draw_line(fb, x0, y0, x, y, color);
+        }
+        last_px = dx; last_py = dy;
+        first = 0;
+    }
+}
+
+void draw_arc(fb_t *fb, int cx, int cy, int r,
+              double a0, double a1, uint32_t color) {
+    if (r <= 0) return;
+    double span = fabs(a1 - a0);
+    int    steps = (int)(r * span) + 8;
+    int    last_x = 0, last_y = 0, first = 1;
+    for (int i = 0; i <= steps; i++) {
+        double t = a0 + (a1 - a0) * i / steps;
+        int x = cx + (int)(r * cos(t) + 0.5);
+        int y = cy + (int)(r * sin(t) + 0.5);
+        put_px(fb, x, y, color);
+        if (!first && (abs(x - last_x) > 1 || abs(y - last_y) > 1))
+            draw_line(fb, last_x, last_y, x, y, color);
+        last_x = x; last_y = y; first = 0;
+    }
+}
+
+void draw_thick_line(fb_t *fb, int x0, int y0, int x1, int y1,
+                     int thickness, uint32_t color) {
+    /* For our 2-pixel needles a plain double-stroke offset by 1 pixel is
+     * enough; we don't need full polygon thickening here. */
+    draw_line(fb, x0, y0, x1, y1, color);
+    if (thickness < 2) return;
+    int dx = x1 - x0, dy = y1 - y0;
+    if (abs(dx) >= abs(dy)) {
+        draw_line(fb, x0, y0 + 1, x1, y1 + 1, color);
+    } else {
+        draw_line(fb, x0 + 1, y0, x1 + 1, y1, color);
     }
 }

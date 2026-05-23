@@ -36,3 +36,21 @@ void draw_frame(fb_t *fb, int x, int y, int w, int h, uint32_t color);
 void draw_alpha_mask(fb_t *fb, int dst_x, int dst_y,
                      const uint8_t *mask, int w, int h, int mask_pitch,
                      uint32_t fg);
+
+/* Single-pixel circle outline (midpoint algorithm). */
+void draw_circle(fb_t *fb, int cx, int cy, int r, uint32_t color);
+
+/* Ellipse outline (a, b are semi-axes). Optionally clipped to a circle of
+ * radius `clip_r` around the same center — useful for sphere-wireframe
+ * effects. Pass clip_r=0 to skip clipping. */
+void draw_ellipse(fb_t *fb, int cx, int cy, int a, int b, int clip_r,
+                  uint32_t color);
+
+/* Arc outline from a0 to a1 radians (mathematical convention: 0 = +x axis,
+ * +y is DOWN in screen coords so PI..2PI traces the lower half). */
+void draw_arc(fb_t *fb, int cx, int cy, int r,
+              double a0, double a1, uint32_t color);
+
+/* Thick line, approximated as two parallel one-pixel lines. */
+void draw_thick_line(fb_t *fb, int x0, int y0, int x1, int y1,
+                     int thickness, uint32_t color);

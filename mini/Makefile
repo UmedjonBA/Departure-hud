@@ -5,7 +5,7 @@
 #   make clean
 
 CC        ?= cc
-PKG_DEPS  := wayland-client freetype2 pixman-1
+PKG_DEPS  := wayland-client freetype2 pixman-1 alsa
 CFLAGS    ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
 CFLAGS    += $(shell pkg-config --cflags $(PKG_DEPS))
 LDLIBS    += $(shell pkg-config --libs   $(PKG_DEPS)) -lrt -lm -ldl
