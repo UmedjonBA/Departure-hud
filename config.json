@@ -68,7 +68,7 @@
   // ── Center scope (wireframe sphere) ─────────────────────────────
 
   "showScope":     true,           // false → hide the wireframe-sphere panel entirely.
-  "starCount":     30,             // warp-speed star count. 0 disables the stars.
+  "starCount":     20,             // warp-speed star count. 0 disables the stars.
 
 
   // ── Optional GPU info script ────────────────────────────────────

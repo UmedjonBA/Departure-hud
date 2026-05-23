@@ -25,7 +25,7 @@ Item {
   readonly property color cFgSoft: Qt.darker(cFg, 6.0)
 
   readonly property bool showScope: settings.showScope !== undefined ? settings.showScope : true
-  readonly property int starCount: settings.starCount !== undefined ? settings.starCount : 30
+  readonly property int starCount: settings.starCount !== undefined ? settings.starCount : 20
   readonly property int cpuMax: settings.cpuMaxTemp || 90
   readonly property int gpuMax: settings.gpuMaxTemp || 85
   readonly property int ssdMax: settings.ssdMaxTemp || 65
@@ -85,7 +85,7 @@ Item {
       property string clockText: "00:00:00.00"
       property string uptimeText: "00D 00:00:00"
       Timer {
-        interval: 80
+        interval: 100
         repeat: true
         running: root.active
         triggeredOnStart: true
@@ -913,7 +913,7 @@ Item {
     }
 
     Timer {
-      interval: 30
+      interval: 100
       repeat: true
       running: ps.active
       onTriggered: {
@@ -958,31 +958,12 @@ Item {
     readonly property int vbH: 460
 
     Canvas {
-      id: scopeCanvas
+      id: staticCanvas
       anchors.fill: parent
-      property var stars: []
-      property real lastTime: 0
-      property bool initialized: false
-
-      function spawnStar(s) {
-        s.a = Math.random() * Math.PI * 2
-        s.r = Math.random() * 6 + 2
-        s.v = 35 + Math.random() * 60
-      }
-
-      function init() {
-        stars = []
-        for (var i = 0; i < sc.starCount; i++) {
-          var s = { a: 0, r: 0, v: 0 }
-          spawnStar(s)
-          s.r = Math.random() * 175
-          stars.push(s)
-        }
-        initialized = true
-      }
-
+      renderStrategy: Canvas.Threaded
+      onWidthChanged:  requestPaint()
+      onHeightChanged: requestPaint()
       onPaint: {
-        if (!initialized) init()
         var ctx = getContext("2d")
         ctx.reset()
         var w = width, h = height
@@ -990,7 +971,6 @@ Item {
         var unit = Math.min(sx, sy)
         ctx.lineWidth = 1
         ctx.strokeStyle = sc.fg
-        ctx.fillStyle = sc.fg
 
         var cx = 240 * sx, cy = 230 * sy, R = 180 * unit
 
@@ -1040,35 +1020,87 @@ Item {
         ctx.moveTo(240 * sx, 218 * sy); ctx.lineTo(240 * sx, 226 * sy)
         ctx.moveTo(240 * sx, 234 * sy); ctx.lineTo(240 * sx, 242 * sy)
         ctx.stroke()
-        ctx.lineWidth = 1
-
-        var now = Date.now()
-        var dt = lastTime === 0 ? 0.033 : Math.min(0.1, (now - lastTime) / 1000)
-        lastTime = now
-        var maxR = 175 * unit
-        for (var i = 0; i < stars.length; i++) {
-          var s = stars[i]
-          s.r += s.v * dt * unit
-          if (s.r > maxR) {
-            spawnStar(s)
-            s.r = 1
-          }
-          var x = cx + Math.cos(s.a) * s.r
-          var y = cy + Math.sin(s.a) * s.r
-          var size = Math.max(1, Math.min(4.5, 0.8 + (s.r / maxR) * 3.5))
-          var alpha = 0.25 + (s.r / maxR) * 0.75
-          ctx.globalAlpha = alpha
-          ctx.fillRect(x - size / 2, y - size / 2, size, size)
-        }
-        ctx.globalAlpha = 1
       }
     }
 
-    Timer {
-      interval: 33
-      repeat: true
-      running: sc.visible && sc.active
-      onTriggered: scopeCanvas.requestPaint()
+    Item {
+      id: starsField
+      anchors.fill: parent
+      readonly property real sx: width / sc.vbW
+      readonly property real sy: height / sc.vbH
+      readonly property real unit: Math.min(sx, sy)
+      readonly property real cx: 240 * sx
+      readonly property real cy: 230 * sy
+      readonly property real maxR: 175 * unit
+
+      Repeater {
+        id: starsRep
+        model: sc.starCount
+        delegate: Rectangle {
+          id: star
+          property real angle: 0
+          property real cosA:  1
+          property real sinA:  0
+          property real radius: 0
+          property real speed: 50
+          color: sc.fg
+          antialiasing: false
+          width:  1; height: 1
+          visible: sc.active
+        }
+      }
+
+      function reroll(s) {
+        s.angle = Math.random() * Math.PI * 2
+        s.cosA  = Math.cos(s.angle)
+        s.sinA  = Math.sin(s.angle)
+        s.speed = 35 + Math.random() * 60
+      }
+
+      function initStars() {
+        for (var i = 0; i < starsRep.count; i++) {
+          var s = starsRep.itemAt(i)
+          if (!s) continue
+          reroll(s)
+          s.radius = Math.random() * Math.max(1, maxR)
+        }
+      }
+
+      function step(dt) {
+        var localMaxR = maxR
+        if (localMaxR <= 0) return
+        var localCx = cx, localCy = cy
+        for (var i = 0; i < starsRep.count; i++) {
+          var s = starsRep.itemAt(i)
+          if (!s) continue
+          var r = s.radius + s.speed * dt * unit
+          if (r > localMaxR) { reroll(s); r = 1 }
+          s.radius = r
+          var frac = r / localMaxR
+          var sz = Math.max(1, Math.min(4.5, 0.8 + frac * 3.5))
+          s.width  = sz
+          s.height = sz
+          s.opacity = 0.25 + frac * 0.75
+          s.x = localCx + s.cosA * r - sz / 2
+          s.y = localCy + s.sinA * r - sz / 2
+        }
+      }
+
+      Timer {
+        id: starsTick
+        interval: 100
+        repeat: true
+        running: sc.visible && sc.active
+        property real lastT: 0
+        onTriggered: {
+          var now = Date.now()
+          var dt = lastT === 0 ? 0.066 : Math.min(0.1, (now - lastT) / 1000)
+          lastT = now
+          starsField.step(dt)
+        }
+      }
+
+      Component.onCompleted: Qt.callLater(initStars)
     }
 
     Rectangle {

@@ -356,9 +356,8 @@ void SysData::pollBattery() {
         return;
     }
 
-    m_hasBattery = true;
-    m_batPercent = info.value("POWER_SUPPLY_CAPACITY").toDouble();
-    m_batState   = info.value("POWER_SUPPLY_STATUS", "UNKNOWN").toUpper();
+    const qreal  newPercent = info.value("POWER_SUPPLY_CAPACITY").toDouble();
+    const QString newState  = info.value("POWER_SUPPLY_STATUS", "UNKNOWN").toUpper();
 
     qreal rateW = 0;
     if (info.contains("POWER_SUPPLY_POWER_NOW")) {
@@ -368,9 +367,8 @@ void SysData::pollBattery() {
         const qreal V = info.value("POWER_SUPPLY_VOLTAGE_NOW").toDouble() / 1e6;
         rateW = I * V;
     }
-    if      (m_batState == "DISCHARGING") rateW = -qAbs(rateW);
-    else if (m_batState == "CHARGING")    rateW =  qAbs(rateW);
-    m_batRateW = rateW;
+    if      (newState == "DISCHARGING") rateW = -qAbs(rateW);
+    else if (newState == "CHARGING")    rateW =  qAbs(rateW);
 
     const QString fKey = info.contains("POWER_SUPPLY_CHARGE_FULL")
         ? "POWER_SUPPLY_CHARGE_FULL" : "POWER_SUPPLY_ENERGY_FULL";
@@ -383,18 +381,34 @@ void SysData::pollBattery() {
     const qreal nowU  = info.value(nKey).toDouble();
     const qreal rate  = info.value(rKey).toDouble();
 
+    int newMinutesLeft = 0;
     if (rate > 0 && nowU > 0) {
         qreal hours = 0;
-        if      (m_batState == "DISCHARGING") hours = nowU / rate;
-        else if (m_batState == "CHARGING")    hours = (fullU - nowU) / rate;
-        m_batMinutesLeft = qMax(0, int(hours * 60));
-    } else {
-        m_batMinutesLeft = 0;
+        if      (newState == "DISCHARGING") hours = nowU / rate;
+        else if (newState == "CHARGING")    hours = (fullU - nowU) / rate;
+        newMinutesLeft = qMax(0, int(hours * 60));
     }
 
+    int newCycles = m_batCycles;
     const QString cyc = readAll(dir + "/cycle_count").trimmed();
-    if (!cyc.isEmpty()) m_batCycles = cyc.toInt();
-    emit batChanged();
+    if (!cyc.isEmpty()) newCycles = cyc.toInt();
+
+    const bool changed =
+        !m_hasBattery ||
+        !qFuzzyCompare(1.0 + m_batPercent, 1.0 + newPercent) ||
+        m_batState != newState ||
+        !qFuzzyCompare(1.0 + m_batRateW, 1.0 + rateW) ||
+        m_batMinutesLeft != newMinutesLeft ||
+        m_batCycles != newCycles;
+
+    m_hasBattery     = true;
+    m_batPercent     = newPercent;
+    m_batState       = newState;
+    m_batRateW       = rateW;
+    m_batMinutesLeft = newMinutesLeft;
+    m_batCycles      = newCycles;
+
+    if (changed) emit batChanged();
 }
 
 void SysData::pollDisks() {
