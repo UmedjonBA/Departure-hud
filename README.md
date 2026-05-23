@@ -12,6 +12,12 @@ transparent window.
 
 ![preview](preview.png)
 
+> **Looking for a lightweight build?** [`mini/`](mini/README.md) is a
+> direct-to-Wayland C rewrite with the same panels but no Qt/Mesa/NVIDIA at
+> runtime — ~17 MB RAM and ~1.5 % CPU instead of ~298 MB / ~9 %. It needs a
+> `wlr-layer-shell-v1` compositor and is configured entirely through
+> environment variables. See [`mini/README.md`](mini/README.md).
+
 ---
 
 ## Table of contents
