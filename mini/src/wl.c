@@ -173,10 +173,30 @@ wl_ctx_t *wl_open(const wl_window_opts_t *opts) {
         c->layer_shell, c->surface, NULL, layer,
         opts->namespace_ ? opts->namespace_ : "departure-hud-mini");
     zwlr_layer_surface_v1_add_listener(c->layer_surface, &layer_listener, c);
-    zwlr_layer_surface_v1_set_size(c->layer_surface, opts->width, opts->height);
-    /* No anchors → compositor centers us. Keyboard/pointer disabled — we're
-     * a passive overlay. */
+
+    if (opts->anchors) {
+        uint32_t a = 0;
+        if (opts->anchors & WL_ANCHOR_TOP)    a |= ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
+        if (opts->anchors & WL_ANCHOR_BOTTOM) a |= ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+        if (opts->anchors & WL_ANCHOR_LEFT)   a |= ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
+        if (opts->anchors & WL_ANCHOR_RIGHT)  a |= ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+        zwlr_layer_surface_v1_set_anchor(c->layer_surface, a);
+    }
+    /* With all four anchors set, compositor picks the size (full output) and
+     * we pass 0,0 here. Otherwise we hint the surface size we want. */
+    int hint_w = (opts->anchors == WL_ANCHOR_ALL) ? 0 : opts->width;
+    int hint_h = (opts->anchors == WL_ANCHOR_ALL) ? 0 : opts->height;
+    zwlr_layer_surface_v1_set_size(c->layer_surface, hint_w, hint_h);
     zwlr_layer_surface_v1_set_keyboard_interactivity(c->layer_surface, 0);
+    /* Don't reserve any space in compositor layout — we're a HUD overlay. */
+    zwlr_layer_surface_v1_set_exclusive_zone(c->layer_surface, -1);
+
+    if (opts->click_through) {
+        /* Empty input region == mouse passes straight through. */
+        struct wl_region *r = wl_compositor_create_region(c->compositor);
+        wl_surface_set_input_region(c->surface, r);
+        wl_region_destroy(r);
+    }
     wl_surface_commit(c->surface);
 
     /* Block until first configure so we know our size and have the GO signal. */

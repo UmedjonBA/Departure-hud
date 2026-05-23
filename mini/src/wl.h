@@ -11,11 +11,24 @@ typedef enum {
     WL_LAYER_OVERLAY,
 } wl_layer_t;
 
+/* Anchor mask — combine to pin the surface to compositor edges. With all
+ * four set, layer-shell makes the surface the size of the output and ignores
+ * the explicit width/height. */
+enum {
+    WL_ANCHOR_TOP    = 1 << 0,
+    WL_ANCHOR_BOTTOM = 1 << 1,
+    WL_ANCHOR_LEFT   = 1 << 2,
+    WL_ANCHOR_RIGHT  = 1 << 3,
+    WL_ANCHOR_ALL    = 0xF,
+};
+
 typedef struct {
     int        width;
     int        height;
     wl_layer_t layer;
-    const char *namespace_;     /* layer-shell scope name, e.g. "departure-hud" */
+    unsigned   anchors;          /* OR of WL_ANCHOR_*. 0 → centered by compositor. */
+    bool       click_through;    /* empty input region; mouse passes through. */
+    const char *namespace_;      /* layer-shell scope name, e.g. "departure-hud" */
 } wl_window_opts_t;
 
 /* Connect to the compositor, create the surface, allocate the shm buffer.
