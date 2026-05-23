@@ -242,7 +242,7 @@ Item {
           VolumeKnob {
             anchors.horizontalCenter: parent.horizontalCenter
             width: 110; height: 58
-            fg: root.cFg; dim: root.cFgDim
+            fg: root.cFg; dim: root.cFgDim; hot: root.cHot
             percent: root.sys?.volumePct ?? 0
             family: root.fontFamily
           }
@@ -396,12 +396,30 @@ Item {
           label: "BATT"
           color: root.cFg; bg: root.cBg; family: root.fontFamily
           visible: root.sys ? root.sys.hasBattery : false
+
+          readonly property real drainPctPerHour: {
+            if (!root.sys || root.sys.batState !== "DISCHARGING") return 0
+            var m = root.sys.batMinutesLeft
+            if (m <= 0) return 0
+            return (root.sys.batPercent ?? 0) * 60 / m
+          }
+          readonly property real drainMax: 30
+
           Text { text: "CHARGE %"; color: root.cFg; font.family: root.fontFamily; font.pixelSize: 10 }
           BarRow {
             width: parent.width
             pct: root.sys?.batPercent ?? 0
             val: root.pad3(root.sys?.batPercent ?? 0)
             hot: (root.sys?.batPercent ?? 0) < 20
+            fg: root.cFg; bg: root.cBg; soft: root.cFgSoft; hotC: root.cHot
+            family: root.fontFamily
+          }
+          Text { text: "DRAIN %/H"; color: root.cFg; font.family: root.fontFamily; font.pixelSize: 10 }
+          BarRow {
+            width: parent.width
+            pct: Math.min(100, parent.drainPctPerHour / parent.drainMax * 100)
+            val: parent.drainPctPerHour.toFixed(1) + "/H"
+            hot: parent.drainPctPerHour > 20
             fg: root.cFg; bg: root.cBg; soft: root.cFgSoft; hotC: root.cHot
             family: root.fontFamily
           }
@@ -516,17 +534,19 @@ Item {
         }
       }
 
-      Row {
-        x: scaler.midX + 6
+      Item {
+        x: scaler.midX
         y: scaler.botY
         width: scaler.midW
         height: scaler.botH
-        spacing: 26
-        KvInline { k: "HOST:";    v: root.sys?.hostName      ?? "host"; fg: root.cFg; family: root.fontFamily }
-        KvInline { k: "KERNEL:";  v: root.sys?.kernelVersion ?? "";     fg: root.cFg; family: root.fontFamily }
-        KvInline { k: "SHELL:";   v: root.sys?.shellName     ?? "";     fg: root.cFg; family: root.fontFamily }
-        KvInline { k: "USER:";    v: root.sys?.userName      ?? "@";    fg: root.cFg; family: root.fontFamily }
-        KvInline { k: "LICENSE:"; v: "QML / MIT";                       fg: root.cFg; family: root.fontFamily }
+        Row {
+          anchors.centerIn: parent
+          spacing: 26
+          KvInline { k: "HOST:";   v: root.sys?.hostName      ?? "host"; fg: root.cFg; family: root.fontFamily }
+          KvInline { k: "KERNEL:"; v: root.sys?.kernelVersion ?? "";     fg: root.cFg; family: root.fontFamily }
+          KvInline { k: "SHELL:";  v: root.sys?.shellName     ?? "";     fg: root.cFg; family: root.fontFamily }
+          KvInline { k: "USER:";   v: root.sys?.userName      ?? "@";    fg: root.cFg; family: root.fontFamily }
+        }
       }
 
       Item {
@@ -590,18 +610,18 @@ Item {
       width: parent.width
       height: 14
       Rectangle {
-        anchors.bottom: parent.bottom
+        anchors.top: parent.top
         anchors.left: parent.left; anchors.right: parent.right
         height: 1; color: sec.color
       }
       Rectangle { width: 1; height: 7; color: sec.color
-                  anchors.bottom: parent.bottom; anchors.left: parent.left }
+                  anchors.top: parent.top; anchors.left: parent.left }
       Rectangle { width: 1; height: 7; color: sec.color
-                  anchors.bottom: parent.bottom; anchors.right: parent.right }
+                  anchors.top: parent.top; anchors.right: parent.right }
       Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: -1
+        anchors.top: parent.top
+        anchors.topMargin: -1
         color: sec.bg
         width: bracketLbl.implicitWidth + 16
         height: bracketLbl.implicitHeight
@@ -724,8 +744,10 @@ Item {
     property int percent: 0
     property color fg: "#fff"
     property color dim: "#444"
+    property color hot: "#ff5a3c"
     property string family: "monospace"
     width: 110; height: 58
+    readonly property bool overload: percent > 100
 
     Canvas {
       id: knobCanvas
@@ -739,14 +761,15 @@ Item {
         ctx.beginPath()
         ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI, false)
         ctx.stroke()
-        var ang = Math.PI + (knob.percent / 100) * Math.PI
-        ctx.strokeStyle = knob.fg
+        var pctClamped = Math.max(0, Math.min(100, knob.percent))
+        var ang = Math.PI + (pctClamped / 100) * Math.PI
+        ctx.strokeStyle = knob.overload ? knob.hot : knob.fg
         ctx.lineWidth = 2
         ctx.beginPath()
         ctx.moveTo(cx, cy)
         ctx.lineTo(cx + Math.cos(ang) * (r - 2), cy + Math.sin(ang) * (r - 2))
         ctx.stroke()
-        ctx.fillStyle = knob.fg
+        ctx.fillStyle = knob.overload ? knob.hot : knob.fg
         ctx.beginPath()
         ctx.arc(cx, cy, 2, 0, 2 * Math.PI)
         ctx.fill()
@@ -761,9 +784,22 @@ Item {
       anchors.bottom: parent.bottom
       anchors.horizontalCenter: parent.horizontalCenter
       text: knob.percent
-      color: knob.fg
+      color: knob.overload ? knob.hot : knob.fg
       font.family: knob.family
       font.pixelSize: 11
+    }
+
+    Text {
+      visible: knob.overload
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: Math.min(knob.width, knob.height) / 2 - 2
+      text: "OVERLOAD"
+      color: knob.hot
+      font.family: knob.family
+      font.pixelSize: 11
+      font.letterSpacing: 1.5
+      font.bold: true
     }
   }
 
