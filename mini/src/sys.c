@@ -713,8 +713,15 @@ static bool gpu_from_nvml(sysinfo_t *out) {
 }
 
 void sys_poll_gpu(sysinfo_t *out) {
-    if (gpu_from_nvml(out)) return;
-    gpu_from_sysfs(out);
+    /* Try sysfs first — amdgpu/nouveau expose gpu_busy_percent and clock
+     * tables, so we get full stats without loading anything. NVML is opt-in
+     * via DEPARTURE_HUD_NVML=1 because libnvidia-ml drags in libcuda
+     * (~6 MB resident, ~90 MB virtual) which is a steep price to pay just
+     * to read a utilization percentage on hybrid laptops where the iGPU
+     * does the actual rendering. */
+    if (gpu_from_sysfs(out)) return;
+    const char *nv = getenv("DEPARTURE_HUD_NVML");
+    if (nv && nv[0] && nv[0] != '0') gpu_from_nvml(out);
 }
 
 /* ── Public API ─────────────────────────────────────────────────────── */

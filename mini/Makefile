@@ -6,7 +6,7 @@
 
 CC        ?= cc
 PKG_DEPS  := wayland-client freetype2 pixman-1 alsa
-CFLAGS    ?= -O2 -g -Wall -Wextra -Wno-unused-parameter
+CFLAGS    ?= -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-format-truncation
 CFLAGS    += $(shell pkg-config --cflags $(PKG_DEPS))
 LDLIBS    += $(shell pkg-config --libs   $(PKG_DEPS)) -lrt -lm -ldl
 

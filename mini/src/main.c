@@ -53,7 +53,6 @@
 #define F_SMALL 9
 #define F_BODY  11
 #define F_LABEL 13
-#define F_TITLE 16
 
 #define N_STARS 20
 
@@ -61,7 +60,6 @@ typedef struct {
     font_t *small;
     font_t *body;
     font_t *label;
-    font_t *title;
 } fonts_t;
 
 typedef struct {
@@ -135,7 +133,8 @@ static int bar_row(fb_t *fb, fonts_t *F, int x, int y, int w,
     int bar_h = 8;
     int bar_y = y + (font_line_height(F->body) - bar_h) / 2;
     draw_rect(fb, x, bar_y, bar_w, bar_h, COL_FG_SOFT);
-    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
     int fill = (int)(bar_w * pct / 100.0 + 0.5);
     if (fill > 0) {
         draw_rect(fb, x, bar_y, fill, bar_h, hot ? COL_HOT : COL_FG);
@@ -406,7 +405,7 @@ static int disk_section(fb_t *fb, fonts_t *F, int x, int y, int w,
 static int net_section(fb_t *fb, fonts_t *F, int x, int y, int w,
                        const sysinfo_t *si) {
     y = section_header(fb, F, x, y, w, "NET");
-    char hdr[80];
+    char hdr[128];
     snprintf(hdr, sizeof(hdr), "v DOWN / ^ UP  [%s]",
              si->net_iface[0] ? si->net_iface : "-");
     txt(fb, F->small, x, y, hdr, COL_FG);
@@ -475,7 +474,8 @@ static void pitch_stack(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
         sin(t * 0.34 + 1.5)   *  9.0 +
         sin(t * 0.56 + 0.7)   *  4.0;
     double f = (30.0 - v) / 60.0;
-    if (f < 0) f = 0; if (f > 1) f = 1;
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
     int near_idx = (int)(f * (n - 1) + 0.5);
 
     for (int i = 0; i < n; i++) {
@@ -573,7 +573,8 @@ static void scope_render(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
         if (r_px <= 0 || r_px > max_r_px) continue;
         double frac = stars[i].radius / 175.0;
         int sz = 1 + (int)(frac * 3.5);
-        if (sz < 1) sz = 1; if (sz > 4) sz = 4;
+        if (sz < 1) sz = 1;
+        if (sz > 4) sz = 4;
         int px = cx + (int)(stars[i].cos_a * r_px);
         int py = cy + (int)(stars[i].sin_a * r_px);
         draw_rect(fb, px - sz / 2, py - sz / 2, sz, sz, COL_FG);
@@ -620,10 +621,16 @@ static void scope_render(fb_t *fb, fonts_t *F, int x, int y, int w, int h,
 static void render(fb_t *fb, fonts_t *F,
                    const sysinfo_t *si, const audio_state_t *au,
                    const star_t *stars, int n_stars, double t_sec) {
+    /* In the layer-shell HUD-sized window case ox/oy == 0; we still compute
+     * them generically so the renderer works when called with a larger
+     * surface (e.g. fullscreen test mode). */
     int ox = (fb->w - HUD_W) / 2; if (ox < 0) ox = 0;
     int oy = (fb->h - HUD_H) / 2; if (oy < 0) oy = 0;
 
-    draw_rect(fb, ox, oy, HUD_W, HUD_H, COL_BG);
+    /* Slightly opaque backdrop behind the HUD so the orange text stays
+     * legible over bright wallpapers. Outside the HUD bounds the surface
+     * stays at its mmap-initialized 0x00000000 (fully transparent). */
+    draw_rect(fb, ox, oy, HUD_W, HUD_H, COL_BG_FILL);
 
     layout_t L = layout_compute();
 
@@ -764,17 +771,19 @@ int main(int argc, char **argv) {
         .small = font_open(fp, F_SMALL),
         .body  = font_open(fp, F_BODY),
         .label = font_open(fp, F_LABEL),
-        .title = font_open(fp, F_TITLE),
     };
-    if (!F.small || !F.body || !F.label || !F.title) {
+    if (!F.small || !F.body || !F.label) {
         fprintf(stderr, "departure-hud-mini: cannot load font at %s\n", fp);
         return 1;
     }
 
+    /* HUD-sized window centered by the compositor. Saves ~5 MB of shm
+     * compared to a fullscreen overlay because the buffer is exactly the
+     * HUD bounds, and we don't pay to clear pixels we won't touch. */
     wl_window_opts_t opts = {
         .width = HUD_W, .height = HUD_H,
         .layer = WL_LAYER_OVERLAY,
-        .anchors = WL_ANCHOR_ALL,
+        .anchors = 0,
         .click_through = true,
         .namespace_ = "departure-hud",
     };
@@ -854,7 +863,8 @@ int main(int argc, char **argv) {
     close(tfd);
     audio_close();
     wl_close(wl);
-    font_close(F.title); font_close(F.label);
-    font_close(F.body);  font_close(F.small);
+    font_close(F.label);
+    font_close(F.body);
+    font_close(F.small);
     return 0;
 }
