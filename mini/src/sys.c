@@ -569,7 +569,11 @@ static void poll_brightness(sysinfo_t *out) {
 static bool gpu_from_sysfs(sysinfo_t *out);
 static bool gpu_from_nvml (sysinfo_t *out);
 
-/* AMD/Intel via /sys/class/drm/card<N>/device — works without nvidia driver. */
+/* GPU via /sys/class/drm/card<N>/{device,gt_*_freq_mhz}.
+ *   • amdgpu / nouveau   — load% (gpu_busy_percent) + DPM clock table
+ *   • Intel i915 / xe    — clock only (gt_cur/max_freq_mhz); load% needs
+ *                          perf events which we don't pull in.
+ * Returns true if anything useful was found. */
 static bool gpu_from_sysfs(sysinfo_t *out) {
     DIR *d = opendir("/sys/class/drm");
     if (!d) return false;
@@ -579,30 +583,31 @@ static bool gpu_from_sysfs(sysinfo_t *out) {
         /* Pick "cardN" (no '-' to skip connectors like card0-DP-1). */
         if (strncmp(e->d_name, "card", 4) != 0) continue;
         if (strchr(e->d_name, '-')) continue;
-        char base[160];
-        snprintf(base, sizeof(base), "/sys/class/drm/%s/device", e->d_name);
+        char base[200], cardp[200];
+        snprintf(cardp, sizeof(cardp), "/sys/class/drm/%s",        e->d_name);
+        snprintf(base,  sizeof(base),  "/sys/class/drm/%s/device", e->d_name);
 
-        /* Vendor ID — 0x1002 AMD, 0x10de NVIDIA, 0x8086 Intel. */
-        char vendor[16] = "";
-        char vpath[200];
+        char vendor[16] = "", buf[64];
+        char vpath[260];
         snprintf(vpath, sizeof(vpath), "%s/vendor", base);
         if (read_file(vpath, vendor, sizeof(vendor))) trim(vendor);
 
-        /* gpu_busy_percent is amdgpu/i915. */
-        char busyp[200], buf[64];
+        bool found_here = false;
+        int  load_pct = -1, cur_mhz = 0, max_mhz = 0;
+
+        /* amdgpu / nouveau load% */
+        char busyp[260];
         snprintf(busyp, sizeof(busyp), "%s/gpu_busy_percent", base);
         if (read_file(busyp, buf, sizeof(buf))) {
-            out->gpu_load_pct = strtod(buf, NULL);
-            got = true;
+            load_pct = atoi(buf); found_here = true;
         }
 
-        /* Current sclk: "0: 200Mhz\n1: 1500Mhz *\n…" — star marks active. */
-        char sclkp[200];
+        /* AMD pp_dpm_sclk: "0: 200Mhz\n1: 1500Mhz *\n…" */
+        char sclkp[260];
         snprintf(sclkp, sizeof(sclkp), "%s/pp_dpm_sclk", base);
         FILE *f = fopen(sclkp, "r");
         if (f) {
             char ln[128];
-            int  max_mhz = 0, cur_mhz = 0;
             while (fgets(ln, sizeof(ln), f)) {
                 int mhz = 0;
                 if (sscanf(ln, "%*d: %dMhz", &mhz) == 1 ||
@@ -611,19 +616,37 @@ static bool gpu_from_sysfs(sysinfo_t *out) {
                     if (strchr(ln, '*')) cur_mhz = mhz;
                 }
             }
-            fclose(f);
-            if (max_mhz) out->gpu_clock_max_mhz = max_mhz;
-            if (cur_mhz) out->gpu_clock_mhz     = cur_mhz;
-            got = true;
+            fclose(f); found_here = true;
         }
 
-        if (got) {
+        /* Intel i915/xe expose gt_*_freq_mhz directly on the card node. */
+        if (!cur_mhz) {
+            char p[260];
+            snprintf(p, sizeof(p), "%s/gt_cur_freq_mhz", cardp);
+            long v = read_long(p);
+            if (v > 0) { cur_mhz = (int)v; found_here = true; }
+        }
+        if (!max_mhz) {
+            char p[260];
+            snprintf(p, sizeof(p), "%s/gt_max_freq_mhz", cardp);
+            long v = read_long(p);
+            if (v > 0) max_mhz = (int)v;
+        }
+
+        if (found_here) {
             if      (strcmp(vendor, "0x1002") == 0) snprintf(out->gpu_name, sizeof(out->gpu_name), "AMD GPU");
             else if (strcmp(vendor, "0x8086") == 0) snprintf(out->gpu_name, sizeof(out->gpu_name), "Intel GPU");
             else if (strcmp(vendor, "0x10de") == 0) snprintf(out->gpu_name, sizeof(out->gpu_name), "NVIDIA GPU");
             else                                    snprintf(out->gpu_name, sizeof(out->gpu_name), "GPU");
+            if (load_pct >= 0) out->gpu_load_pct = load_pct;
+            if (cur_mhz)       out->gpu_clock_mhz     = cur_mhz;
+            if (max_mhz)       out->gpu_clock_max_mhz = max_mhz;
             out->has_gpu = true;
-            break;
+            got = true;
+            /* Prefer the first card with full data; if this one only has
+             * frequency, keep scanning to see whether a sibling card has
+             * load% too. */
+            if (load_pct >= 0) break;
         }
     }
     closedir(d);
